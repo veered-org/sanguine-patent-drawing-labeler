@@ -1,9 +1,9 @@
-// Alizarin: the page. Everything runs in the browser; the drawing never leaves it.
+// Sanguine: the page. Everything runs in the browser; the drawing never leaves it.
 // Coordinates: "source pt" = PDF points on a source page (top-left origin, as shown);
 // "sheet pt" = points on an output sheet; the engine works in sheet px (S px per pt).
 (function () {
   'use strict';
-  const E = window.AlizarinEngine;
+  const E = window.SanguineEngine;
   pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const PPTX_URL = 'https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js';
   const S = 2;                                        // px per pt for display and placement
@@ -768,7 +768,7 @@
       const sn = sheetNumBox(sh);
       if (sn) pg.drawText(sn.text, { x: sn.box[0], y: sh.h - sn.box[3], size: SHEETNUM_FS, font: f, color: black });
     }
-    out.setTitle(baseName() + ' (labeled)'); out.setCreator('Alizarin patent drawing labeler'); out.setProducer('pdf-lib');
+    out.setTitle(baseName() + ' (labeled)'); out.setCreator('Sanguine patent drawing labeler'); out.setProducer('pdf-lib');
     download(await out.save(), baseName() + '-labeled.pdf', 'application/pdf');
     status('PDF downloaded.' + unplacedNote());
   }
@@ -925,7 +925,7 @@
 
   // ---------------------------------------------------------------- project files
   $('save').onclick = () => {
-    const proj = { app: 'alizarin', version: 1, file: doc ? { name: doc.name, pages: doc.pages.length } : null, state: st };
+    const proj = { app: 'sanguine', version: 1, file: doc ? { name: doc.name, pages: doc.pages.length } : null, state: st };
     download(JSON.stringify(proj, null, 1), baseName() + '-labels.json', 'application/json');
   };
   $('load').onclick = () => $('loadfile').click();
@@ -933,7 +933,7 @@
     const f = $('loadfile').files[0]; $('loadfile').value = ''; if (!f) return;
     try {
       const proj = JSON.parse(await f.text());
-      if (proj.app !== 'alizarin' || !proj.state) throw new Error('not an Alizarin project file');
+      if (!['sanguine', 'alizarin'].includes(proj.app) || !proj.state) throw new Error('not a Sanguine project file');
       if (doc && proj.file && proj.file.pages === doc.pages.length) {
         snapshot(); st = proj.state; syncOptsToUI(); await rebuild(false); status('Project opened.');
       } else {
@@ -1087,5 +1087,5 @@ Answer with only this JSON, nothing else:
   if (/[?&]demo\b/.test(location.search)) demo();
 
   window.addEventListener('resize', () => { if (surfaces.length) fitWidth(); });
-  window.__alizarin = { get st() { return st; }, get sheets() { return sheets; }, importClaude, placeAll, openFile };
+  window.__sanguine = { get st() { return st; }, get sheets() { return sheets; }, importClaude, placeAll, openFile };
 })();

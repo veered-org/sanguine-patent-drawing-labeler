@@ -1,4 +1,4 @@
-// Alizarin placement engine: puts reference numerals and leader lines on a patent
+// Sanguine placement engine: puts reference numerals and leader lines on a patent
 // drawing so that the numerals sit in clear space, the leader lines are short and
 // cross as few drawing lines as possible, and no two labels or leaders collide.
 //
@@ -358,5 +358,5 @@
 
   const api = { Sheet, findFigures, inkFromRGBA, edgePoint, splitNumeral, segInter, segRect, boxesTouch };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  else root.AlizarinEngine = api;
+  else root.SanguineEngine = api;
 })(typeof self !== 'undefined' ? self : this);

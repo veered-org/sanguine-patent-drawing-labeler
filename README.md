@@ -1,6 +1,6 @@
-# Patent Drawing Labeler (Alizarin)
+# Patent Drawing Labeler (Sanguine)
 
-*Why Alizarin? The crimson ink draftsmen used for the red-lined corrections on a drawing.*
+*Why Sanguine? The red chalk that Leonardo and Michelangelo drew with.*
 
 **Runs on** any web browser: nothing to install, and the drawing never leaves your computer.
 
