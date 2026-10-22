@@ -74,4 +74,36 @@ assert(caps[0][1] >= 1400 && caps[0][3] <= 1430, 'caption box');
   assert(m[150 * w + 200] && m[151 * w + 300], 'lines are ink');
   assert(n < 700, 'grey paper is not ink (' + n + ')');
 }
+// a caption no big drawing claims gathers the small drawing beside it
+{
+  const w = 1224, h = 1584, m = new Uint8Array(w * h);
+  const put = (x, y) => { m[y * w + x] = 1; };
+  const box = (x0, y0, x1, y1) => { for (let x = x0; x <= x1; x++) { put(x, y0); put(x, y1); } for (let y = y0; y <= y1; y++) { put(x0, y); put(x1, y); } };
+  box(400, 200, 1000, 900);                       // the big figure
+  box(300, 960, 340, 1040);                       // a small part below its left corner
+  const caps = [[620, 960, 740, 990], [360, 1000, 480, 1030]];
+  assert.strictEqual(E.findFigures(m, w, h, 2).length, 1, 'without captions the small part joins the big one');
+  const figs2 = E.findFigures(m, w, h, 2, caps);
+  assert.strictEqual(figs2.length, 2, 'its own caption makes the small part a figure');
+}
+// a leader that would cross a line bends round it when it can
+{
+  const w = 800, h = 800, m = new Uint8Array(w * h);
+  for (let y = 100; y < 700; y++) m[y * w + 400] = 1;            // a long vertical line
+  for (let x = 400; x < 700; x++) m[400 * w + x] = 1;            // a branch to the right
+  const sh = new E.Sheet(m, w, h, 2, [20, 20, 780, 780]);
+  const tip = sh.snap(560, 400), meas = t => [t.length * 16, 20];
+  const straight = sh.place([{ key: 'a', text: '10', tips: [tip], center: [400, 400] }], meas, null, { straight: true }).a;
+  const curved = sh.place([{ key: 'a', text: '10', tips: [tip], center: [400, 400] }], meas).a;
+  assert(straight && curved, 'both placed');
+  assert(curved.crossings <= straight.crossings, 'curves never cross more');
+}
+// stipple dots are not lines to a leader
+{
+  const w = 600, h = 600, m = new Uint8Array(w * h);
+  for (let y = 200; y < 400; y += 6) for (let x = 200; x < 400; x += 6) m[y * w + x] = 1;
+  const sh = new E.Sheet(m, w, h, 2, [0, 0, 600, 600]);
+  assert.strictEqual(sh.crossings([300, 300], [500, 300])[0], 0, 'no lines crossed in stippling');
+  assert(sh.clear.sum(290, 290, 310, 310) > 0, 'but the stippling is not clear paper');
+}
 console.log('ok');
