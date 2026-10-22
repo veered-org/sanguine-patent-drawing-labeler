@@ -1711,7 +1711,7 @@
       rows.map(r => `<w:tr>${cell(r.n, widths[0])}${cell(r.name, widths[1])}${cell(figsText(r.figs), widths[2])}</w:tr>`).join('') + '</w:tbl>' +
       // a start on the specification's list of figures, to fill in
       (st.figures.length ? P('', { after: 240 }) + P(R('BRIEF DESCRIPTION OF THE DRAWINGS', { b: true }), { after: 200 }) +
-        st.figures.map((f, i) => P(R(`FIG. ${f.num} is a ________ view of ________${i === st.figures.length - 1 ? '.' : ';'}`))).join('') : '');
+        st.figures.map((f, i) => P(R(`FIG. ${f.num} is ${f.view ? (/^[aeiou]/i.test(f.view) ? 'an ' : 'a ') + f.view : 'a ________ view of ________'}${i === st.figures.length - 1 ? '.' : ';'}`))).join('') : '');
     const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
     const z = new JSZip();
     z.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');
@@ -1835,17 +1835,17 @@ Please:
 
 Answer with only this JSON, nothing else:
 {
-  "figures": [{"fig": "1", "sheet": 1, "box": [x0, y0, x1, y1]}],
+  "figures": [{"fig": "1", "sheet": 1, "box": [x0, y0, x1, y1], "view": "front perspective view of the walker"}],
   "parts":   [{"n": "10", "name": "frame"}],
   "labels":  [{"fig": "1", "n": "10", "at": [[x, y], [x, y]]}]
 }
-("box" is the figure's extent in grid percent: left, top, right, bottom.)`;
+("box" is the figure's extent in grid percent: left, top, right, bottom. "view" says what the figure shows, as it would follow "FIG. 1 is a" in the Brief Description of the Drawings.)`;
   }
   const ANSWER_SCHEMA = {
     type: 'object', additionalProperties: false, required: ['figures', 'parts', 'labels'],
     properties: {
-      figures: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['fig', 'sheet', 'box'],
-        properties: { fig: { type: 'string' }, sheet: { type: 'integer' }, box: { type: 'array', items: { type: 'number' } } } } },
+      figures: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['fig', 'sheet', 'box', 'view'],
+        properties: { fig: { type: 'string' }, sheet: { type: 'integer' }, box: { type: 'array', items: { type: 'number' } }, view: { type: 'string' } } } },
       parts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'name'],
         properties: { n: { type: 'string' }, name: { type: 'string' } } } },
       labels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['fig', 'n', 'at'],
@@ -1946,7 +1946,8 @@ Answer with only this JSON, nothing else:
         if (!Array.isArray(f.box) || f.box.length < 4) continue;
         const a = toPt(page, [f.box[0], f.box[1]]), b = toPt(page, [f.box[2], f.box[3]]);
         const old = st.figures.find(o => o.page === page && o.num === String(f.fig));
-        nf.push({ id: old && !nf.some(x => x.id === old.id) ? old.id : nid(), page, num: String(f.fig), box: normRect(a, b) });
+        nf.push({ id: old && !nf.some(x => x.id === old.id) ? old.id : nid(), page, num: String(f.fig), box: normRect(a, b),
+                  view: typeof f.view === 'string' ? f.view.trim().replace(/^an? /i, '').replace(/[.;]+$/, '') : (old && old.view) || '' });
       }
       if (nf.length) {
         // Claude's boxes are rough: fit each one to the ink inside it
