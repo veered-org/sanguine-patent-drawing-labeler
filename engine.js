@@ -421,6 +421,50 @@
     return keep.map(b => b.box);
   }
 
+  // Captions already drawn on the sheet ("FIG. 3"): a short line of letter-sized marks
+  // standing on one baseline, with clear paper all round. Returns boxes in px.
+  function findCaptions(ink, W, H, S) {
+    const lab = new Int32Array(W * H), comps = [], st = [];
+    for (let i = 0; i < W * H; i++) {
+      if (!ink[i] || lab[i]) continue;
+      const id = comps.length + 1; let x0 = W, y0 = H, x1 = 0, y1 = 0, n = 0;
+      lab[i] = id; st.push(i);
+      while (st.length) {
+        const j = st.pop(), x = j % W, y = (j / W) | 0; n++;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x > 0 && ink[j - 1] && !lab[j - 1]) { lab[j - 1] = id; st.push(j - 1); }
+        if (x < W - 1 && ink[j + 1] && !lab[j + 1]) { lab[j + 1] = id; st.push(j + 1); }
+        if (y > 0 && ink[j - W] && !lab[j - W]) { lab[j - W] = id; st.push(j - W); }
+        if (y < H - 1 && ink[j + W] && !lab[j + W]) { lab[j + W] = id; st.push(j + W); }
+      }
+      comps.push({ box: [x0, y0, x1 + 1, y1 + 1], n });
+    }
+    const hOf = c => c.box[3] - c.box[1], wOf = c => c.box[2] - c.box[0];
+    const chars = comps.filter(c => hOf(c) >= 6 * S && hOf(c) <= 32 * S && wOf(c) <= 1.4 * hOf(c) + 3 * S)
+      .sort((a, b) => a.box[0] - b.box[0]);
+    const small = comps.filter(c => hOf(c) < 6 * S && wOf(c) < 6 * S);
+    const lines = [];
+    for (const c of chars) {
+      const h = hOf(c);
+      const ln = lines.find(l => Math.abs(l.box[3] - c.box[3]) <= 0.2 * l.h && Math.abs(h - l.h) <= 0.3 * l.h &&
+                                 c.box[0] - l.box[2] <= 1.3 * l.h && c.box[0] >= l.box[2] - 0.1 * l.h);
+      if (ln) { ln.n++; ln.box = [ln.box[0], Math.min(ln.box[1], c.box[1]), Math.max(ln.box[2], c.box[2]), Math.max(ln.box[3], c.box[3])]; }
+      else lines.push({ box: c.box.slice(), h, n: 1 });
+    }
+    const g = new Grid(ink, W, H), out = [];
+    for (const l of lines) {
+      const b = l.box, w = b[2] - b[0];
+      if (l.n < 3 || l.n > 10 || w > 9 * l.h || w < 2.5 * l.h) continue;     // not "1/7"
+      // the period and other small marks on the line belong to it
+      for (const s of small) if (s.box[1] >= b[1] && s.box[3] <= b[3] + 2 && s.box[0] >= b[0] - 0.5 * l.h && s.box[2] <= b[2] + 0.5 * l.h)
+        b[0] = Math.min(b[0], s.box[0]), b[2] = Math.max(b[2], s.box[2]);
+      const m = Math.round(0.4 * l.h);
+      if (g.sum(b[0] - m, b[1] - m, b[2] + m, b[3] + m) - g.sum(b[0], b[1], b[2], b[3])) continue;
+      out.push(b);
+    }
+    return out;
+  }
+
   // Dark pixels of an RGBA canvas buffer.
   function inkFromRGBA(data, W, H, threshold) {
     threshold = threshold || 190;
@@ -439,7 +483,7 @@
     return m ? [m[1], m[2]] : [String(t).trim(), ''];
   }
 
-  const api = { Sheet, findFigures, inkFromRGBA, edgePoint, splitNumeral, segInter, segRect, boxesTouch };
+  const api = { Sheet, findFigures, findCaptions, inkFromRGBA, edgePoint, splitNumeral, segInter, segRect, boxesTouch };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SanguineEngine = api;
 })(typeof self !== 'undefined' ? self : this);

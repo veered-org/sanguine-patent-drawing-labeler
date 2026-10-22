@@ -58,4 +58,10 @@ assert(figs[0][1] < figs[1][1], 'reading order');
 const fl = sheet.placeFigLabel(figs[1], [60 * S, 14 * S], Object.values(res));
 assert(fl[1] > 1300, 'FIG. label under the figure');
 assert.deepStrictEqual(E.splitNumeral('26a'), ['26', 'a']);
+// a drawn caption: five letter-sized marks on one baseline, clear paper round them
+assert.strictEqual(E.findCaptions(ink, W, H, S).length, 0, 'no caption on the drawing');
+for (let i = 0; i < 5; i++) rect(520 + i * 24, 1400, 536 + i * 24, 1428);
+const caps = E.findCaptions(ink, W, H, S);
+assert.strictEqual(caps.length, 1, 'caption found');
+assert(caps[0][1] >= 1400 && caps[0][3] <= 1430, 'caption box');
 console.log('ok');

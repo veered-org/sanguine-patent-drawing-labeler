@@ -144,12 +144,30 @@
     else ctx.drawImage(p.img, 0, 0, c.width, c.height);
     p.canvas = c;
     p.ink = E.inkFromRGBA(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
+    // "FIG. 3" captions drawn on the sheet: kept out of the figure boxes
+    const caps = E.findCaptions(p.ink, c.width, c.height, S);
+    p.caps = caps.map(b => b.map(v => v / S));
+    p.figInk = p.ink;
+    if (caps.length) {
+      p.figInk = p.ink.slice();
+      for (const b of caps) for (let y = Math.max(0, b[1] - 2); y < Math.min(c.height, b[3] + 2); y++) p.figInk.fill(0, y * c.width + Math.max(0, b[0] - 2), y * c.width + Math.min(c.width, b[2] + 2));
+    }
+  }
+  // The caption drawn for a figure: the nearest one below or beside it, unless it was
+  // whited out. On split sheets the crop leaves it out, so the figure gets a new label.
+  function figCaption(f) {
+    const P = doc && doc.pages[f.page];
+    if (!P || !P.caps || st.opts.layout === 'split') return null;
+    const gap = (a, b) => Math.max(a[0] - b[2], b[0] - a[2], a[1] - b[3], b[1] - a[3], 0);
+    const mine = st.figures.filter(o => o.page === f.page);
+    return P.caps.find(c => gap(c, f.box) < 60 && mine.every(o => gap(c, o.box) >= gap(c, f.box)) &&
+      !st.notes.some(n => n.kind === 'white' && n.page === f.page && inBox([(c[0] + c[2]) / 2, (c[1] + c[3]) / 2], normRect(n.a, n.b), 0))) || null;
   }
 
   function findAllFigures() {
     st.figures = [];
     doc.pages.forEach((p, i) => {
-      let boxes = E.findFigures(p.ink, p.canvas.width, p.canvas.height, S).map(b => b.map(v => v / S));
+      let boxes = E.findFigures(p.figInk, p.canvas.width, p.canvas.height, S).map(b => b.map(v => v / S));
       if (!boxes.length) boxes = [[MARGIN.l, MARGIN.t, p.w - MARGIN.r, p.h - MARGIN.b]];
       for (const b of boxes) {
         const pad = 4;
@@ -244,8 +262,9 @@
     for (const sh of sheets) if (sh.page === page || sh.figs.some(g => g.page === page)) {
       await renderSheet(sh);
       for (const l of labelsOn(sh)) recross(l, sh);
+      if (st.opts.figlabels) placeFigLabels(sh, true);
     }
-    drawAll();
+    renderLists(); drawAll();
   }
   const sheetRect = g => [g.ox, g.oy, g.ox + (g.clip[2] - g.clip[0]) * g.sc, g.oy + (g.clip[3] - g.clip[1]) * g.sc];
   function engineFor(sh) {
@@ -393,23 +412,28 @@
       if (only && !todo.length) continue;
       const res = eng.place(todo.map(l => itemFor(l, sh)), measurePx, obst, { straight: !st.opts.curves });
       for (const l of todo) applyResult(l, res[l.id]);
-      if (st.opts.figlabels && !only) {
-        const done = mine.filter(l => l.pos).map(l => ({ box: px(l.pos.box), tip: px(l.pos.tip), end: px(l.pos.end) }));
-        const sn = sheetNumBox(sh); if (sn) done.push({ box: px(sn.box), tip: [0, 0], end: [0, 0] });
-        for (const n of notesOn(sh)) { const gm = noteGeom(n, sh); if (gm && n.kind === 'text') done.push({ box: px(gm.box), tip: [0, 0], end: [0, 0] }); }
-        for (const g of sh.figs) {
-          const f = figById(g.fig), cur = st.figLabels[g.fig];
-          if (cur && cur.pinned) { done.push({ box: px(cur.box), tip: [0, 0], end: [0, 0] }); continue; }
-          const wh = measure(figLabelText(f), true, st.opts.figfs).map(v => v * S);
-          const box = eng.placeFigLabel(sh.figInk[g.fig], wh, done);
-          st.figLabels[g.fig] = { box: pt(box), pinned: false };
-          done.push({ box, tip: [0, 0], end: [0, 0] });
-        }
-      }
+      if (st.opts.figlabels && !only) placeFigLabels(sh, false);
       await new Promise(r => setTimeout(r, 0));
     }
     status('');
     renderLists(); drawAll();
+  }
+  // "FIG. n" under each figure that has no caption of its own. missingOnly: keep the
+  // labels already there.
+  function placeFigLabels(sh, missingOnly) {
+    const eng = engineFor(sh);
+    const done = labelsOn(sh).filter(l => l.pos).map(l => ({ box: px(l.pos.box), tip: px(l.pos.tip), end: px(l.pos.end) }));
+    const sn = sheetNumBox(sh); if (sn) done.push({ box: px(sn.box), tip: [0, 0], end: [0, 0] });
+    for (const n of notesOn(sh)) { const gm = noteGeom(n, sh); if (gm && n.kind === 'text') done.push({ box: px(gm.box), tip: [0, 0], end: [0, 0] }); }
+    for (const g of sh.figs) {
+      const f = figById(g.fig), cur = st.figLabels[g.fig];
+      if (figCaption(f)) { delete st.figLabels[g.fig]; continue; }
+      if (cur && (cur.pinned || missingOnly)) { done.push({ box: px(cur.box), tip: [0, 0], end: [0, 0] }); continue; }
+      const wh = measure(figLabelText(f), true, st.opts.figfs).map(v => v * S);
+      const box = eng.placeFigLabel(sh.figInk[g.fig], wh, done);
+      st.figLabels[g.fig] = { box: pt(box), pinned: false };
+      done.push({ box, tip: [0, 0], end: [0, 0] });
+    }
   }
   function report() {
     const placed = st.labels.filter(l => l.pos).length, missing = st.labels.length - placed;
@@ -424,7 +448,7 @@
     const fl = $('figlist');
     fl.innerHTML = st.figures.map(f => `<tr data-id="${f.id}" class="${isSel('fig', f.id) ? 'active' : ''}">
       <td style="width:44px;color:var(--muted)">FIG.</td><td class="num"><input value="${esc(f.num)}" data-k="num"></td>
-      <td style="color:var(--muted);font-size:12px">sheet ${f.page + 1}</td>
+      <td style="color:var(--muted);font-size:12px">sheet ${f.page + 1}${figCaption(f) ? ' <span style="white-space:nowrap" title="The drawing already has this caption, so no FIG. label is added. White it out to get a new one.">· caption</span>' : ''}</td>
       <td class="x"><button class="x" data-a="up" title="Move up">↑</button></td>
       <td class="x"><button class="x" data-a="dn" title="Move down">↓</button></td>
       <td class="x"><button class="x" data-a="del" title="Remove">×</button></td></tr>`).join('');
@@ -1811,7 +1835,7 @@ Answer with only this JSON, nothing else:
     const x0 = Math.max(0, Math.floor((box[0] - m) * S)), y0 = Math.max(0, Math.floor((box[1] - m) * S));
     const x1 = Math.min(W, Math.ceil((box[2] + m) * S)), y1 = Math.min(H, Math.ceil((box[3] + m) * S));
     let a = W, b = H, c = -1, d = -1;
-    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (P.ink[y * W + x]) { if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y; }
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (P.figInk[y * W + x]) { if (x < a) a = x; if (x > c) c = x; if (y < b) b = y; if (y > d) d = y; }
     if (c < 0) return null;
     return [Math.max(0, a / S - 4), Math.max(0, b / S - 4), Math.min(P.w, c / S + 4), Math.min(P.h, d / S + 4)];
   }

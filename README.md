@@ -39,13 +39,16 @@ The small orange dots mark leaders that had to cross one line of the drawing.*
 
 - **Finds the figures.** It separates each view on a sheet, and keeps the loose parts
   of an exploded view with their figure. You can join, split or redraw them by
-  dragging boxes. You can keep the sheets as drawn, or put each figure on its own
+  dragging boxes. It spots "FIG. 3" captions already on the drawing and keeps them
+  instead of adding a second one. You can keep the sheets as drawn, or put each figure on its own
   Letter or A4 sheet, enlarged to fill it, with sheet numbers ("1/7").
 - **Places the numerals.** For each part you click, it tries hundreds of positions
   and picks the best one. The best spot is clear of the drawing, inside the 37 CFR
   1.84(g) margins, close to the part, and outside the figure's outline, with a
   leader that crosses as few lines as it can and runs near no other part's tip.
   Then it shuffles the hardest labels until all of them fit together.
+  A leader that would have to cross a line may bend gently round it instead (untick
+  *Curve leaders round lines* for straight leaders only).
 - **Lets you edit everything on the page:**
   - drag a numeral, a "FIG." label, a text or a line; drag the dot at the end of a
     leader to move its tip. A numeral you move stays where you put it the next time
@@ -144,8 +147,10 @@ Node) works on the sheet rendered at 144 dpi:
 - the figure's filled silhouette, so numerals prefer the outside.
 
 For each tip it scores numeral positions at 10° steps and a range of distances:
-`600 × lines crossed + 4 × ink under the leader + 0.25 × length + an outward-direction
-term + 2500 if inside the outline`. It then places the labels greedily, hardest
+`600 × lines crossed + 4 × ink under the leader + 0.25 × length (steeper past about
+55 pt) + an outward-direction term + 600 inside the outline` (1000 in a snug spot
+inside it). A leader that would cross a line also tries four gentle bends (quadratic
+curves) and keeps any that cross fewer lines. It then places the labels greedily, hardest
 first (the ones with the fewest cheap spots). The unplaced labels move to the front
 and it tries again, and five repair passes re-pick each label against all the
 others. Candidates are rejected when numerals come within 16 px of each other,
