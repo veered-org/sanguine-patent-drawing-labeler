@@ -71,6 +71,26 @@
     return sil;
   }
 
+  // The ink without its specks: connected marks no bigger than `size` px either way.
+  function withoutSpecks(ink, W, H, size) {
+    const out = ink.slice(), seen = new Uint8Array(W * H), st = new Int32Array(W * H), comp = [];
+    for (let i = 0; i < W * H; i++) {
+      if (!ink[i] || seen[i]) continue;
+      let sp = 0, n = 0, x0 = W, y0 = H, x1 = 0, y1 = 0;
+      seen[i] = 1; st[sp++] = i;
+      while (sp) {
+        const j = st[--sp], x = j % W, y = (j / W) | 0; comp[n++] = j;
+        if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
+        if (x > 0 && ink[j - 1] && !seen[j - 1]) { seen[j - 1] = 1; st[sp++] = j - 1; }
+        if (x < W - 1 && ink[j + 1] && !seen[j + 1]) { seen[j + 1] = 1; st[sp++] = j + 1; }
+        if (y > 0 && ink[j - W] && !seen[j - W]) { seen[j - W] = 1; st[sp++] = j - W; }
+        if (y < H - 1 && ink[j + W] && !seen[j + W]) { seen[j + W] = 1; st[sp++] = j + W; }
+      }
+      if (x1 - x0 < size && y1 - y0 < size) for (let q = 0; q < n; q++) out[comp[q]] = 0;
+    }
+    return out;
+  }
+
   function segInter(p1, p2, p3, p4) {
     const o = (a, b, c) => (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
     return o(p3, p4, p1) * o(p3, p4, p2) < 0 && o(p1, p2, p3) * o(p1, p2, p4) < 0;
@@ -107,8 +127,11 @@
     const k = S / 2.7778;                 // the original tuning was at 200 dpi
     this.W = W; this.H = H; this.S = S; this.sight = sight; this.k = k;
     this.ink = ink;
-    this.inkd = dilate(new Grid(ink, W, H), Math.max(1, Math.round(2 * k)));
-    this.clear = new Grid(this.inkd, W, H);
+    const r = Math.max(1, Math.round(2 * k));
+    this.clear = new Grid(dilate(new Grid(ink, W, H), r), W, H);
+    // crossings count drawn lines; the dots of stippled shading are not lines to a
+    // leader (it runs across them), though numerals still keep off them
+    this.inkd = dilate(new Grid(withoutSpecks(ink, W, H, Math.round(2.5 * S)), W, H), r);
     this.sil = new Grid(silhouette(ink, W, H, Math.max(4, Math.round(12 * k))), W, H);
   }
 
