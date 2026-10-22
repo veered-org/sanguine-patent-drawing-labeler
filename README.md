@@ -149,7 +149,9 @@ before the ink mask is taken, so placement treats the space as clear.
 **The placement engine** (`engine.js`, no dependencies, runs in the browser and in
 Node) works on the sheet rendered at 144 dpi:
 
-- a dilated ink mask, so it can tell whether a leader touches a line;
+- the ink, found against the local paper brightness (so a grey scan or a photo of
+  a sketch works), and a dilated mask of the drawn lines, so it can tell whether a
+  leader touches a line (the dots of stippled shading don't count as lines);
 - summed-area tables, for a constant-time "is this box clear?" test;
 - the figure's filled silhouette, so numerals prefer the outside.
 
@@ -159,14 +161,20 @@ For each tip it scores numeral positions at 5° steps and a range of distances:
 inside it). A leader that would cross a line also tries four gentle bends (quadratic
 curves) and keeps any that cross fewer lines. It then places the labels greedily, hardest
 first (the ones with the fewest cheap spots). The unplaced labels move to the front
-and it tries again, and five repair passes re-pick each label against all the
-others. Candidates are rejected when numerals come within 16 px of each other,
+and it tries again; five repair passes re-pick each label against all the others,
+then pairs of labels that want the same spot swap when that helps, and numerals
+near each other on the same side are lined up. Every spot on one ray from a tip
+shares its leader's first stretch, so each ray is walked only once. Candidates are rejected when numerals come within 16 px of each other,
 when leaders cross or pass within 20 px, or when a leader clips a numeral. The
 constants were tuned at 200 dpi and scale with the render.
 
 Coordinates in Claude's answer are percent of the sheet as shown (fractions are
-accepted too). Label points are snapped to the nearest ink within about 12 pt, and
-each figure box is shrunk to the ink inside it. *Ask Claude* uses structured output
+accepted too). Label points are snapped to the nearest ink within about 12 pt (24 pt
+if there is none closer), and each figure box is shrunk to the ink inside it.
+
+"FIG. 3" captions already on a sheet are found as short lines of letter-sized marks
+on one baseline with clear paper round them, and read by matching each mark against
+the letters and digits of a few common typefaces drawn on a canvas. *Ask Claude* uses structured output
 (a JSON schema), so the answer always parses.
 
 **Tests:** `node tests/engine.test.js` builds a synthetic drawing and checks that
