@@ -355,8 +355,10 @@
   };
 
   // Figure finder: groups the ink on a page into separate drawings. Returns boxes in px,
-  // biggest-first-by-reading-order (top to bottom, then left to right).
-  function findFigures(ink, W, H, S) {
+  // biggest-first-by-reading-order (top to bottom, then left to right). captions (px
+  // boxes, optional, already left out of the ink) anchor figures: one that no big
+  // drawing claims gathers the small drawing beside it (a spring drawn as FIG. 4B).
+  function findFigures(ink, W, H, S, captions) {
     const step = Math.max(1, Math.round(S * 2));          // work on a ~36 dpi grid
     const w = Math.ceil(W / step), h = Math.ceil(H / step);
     const g = new Uint8Array(w * h);
@@ -394,6 +396,24 @@
       return b.cnt / total > 0.04 && Math.max(w, h) > 60 * pt && Math.min(w, h) > 20 * pt;
     };
     const keep = boxes.filter(isBig);
+    if (captions && captions.length) {
+      const claimed = new Set();
+      for (const k of keep) {
+        let best = -1, bd = 60 * pt;
+        captions.forEach((c, i) => { const d = gap(c, k.box); if (d < bd) { bd = d; best = i; } });
+        if (best >= 0) claimed.add(best);
+      }
+      captions.forEach((c, i) => {
+        if (claimed.has(i)) return;
+        const h = c[3] - c[1];
+        const mine = boxes.filter(b => !isBig(b) && !b.used && b.cnt / total > 0.002 && gap(b.box, c) < 2.5 * h &&
+                                       keep.every(k => gap(b.box, k.box) > gap(b.box, c)));
+        if (!mine.length) return;
+        const fig = mine.reduce((a, b) => union(a, b));
+        for (const b of mine) b.used = true;
+        keep.push(fig);
+      });
+    }
     // loose bits near a drawing (a detached fastener, a lead line) join the nearest one;
     // everything else (captions, page numbers, specks) is left out
     // A part lined up beside a drawing, further out (an exploded view), joins it too.

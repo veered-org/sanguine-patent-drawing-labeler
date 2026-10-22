@@ -39,8 +39,9 @@ The small orange dots mark leaders that had to cross one line of the drawing.*
 
 - **Finds the figures.** It separates each view on a sheet, and keeps the loose parts
   of an exploded view with their figure. You can join, split or redraw them by
-  dragging boxes. It spots "FIG. 3" captions already on the drawing and keeps them
-  instead of adding a second one. You can keep the sheets as drawn, or put each figure on its own
+  dragging boxes. It spots "FIG. 3" captions already on the drawing, keeps them
+  instead of adding a second one, and numbers the figures the way the captions do
+  (FIG. 4a, 4b…) when it can read them. You can keep the sheets as drawn, or put each figure on its own
   Letter or A4 sheet, enlarged to fill it, with sheet numbers ("1/7").
 - **Places the numerals.** For each part you click, it tries hundreds of positions
   and picks the best one. The best spot is clear of the drawing, inside the 37 CFR

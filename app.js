@@ -146,7 +146,7 @@
     p.ink = E.inkFromRGBA(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
     // "FIG. 3" captions drawn on the sheet: kept out of the figure boxes
     const caps = E.findCaptions(p.ink, c.width, c.height, S);
-    p.caps = caps.map(b => b.map(v => v / S));
+    p.capsPx = caps; p.caps = caps.map(b => b.map(v => v / S));
     p.figInk = p.ink;
     if (caps.length) {
       p.figInk = p.ink.slice();
@@ -155,9 +155,10 @@
   }
   // The caption drawn for a figure: the nearest one below or beside it, unless it was
   // whited out. On split sheets the crop leaves it out, so the figure gets a new label.
-  function figCaption(f) {
+  const figCaption = f => st.opts.layout === 'split' ? null : drawnCaption(f);
+  function drawnCaption(f) {
     const P = doc && doc.pages[f.page];
-    if (!P || !P.caps || st.opts.layout === 'split') return null;
+    if (!P || !P.caps) return null;
     const gap = (a, b) => Math.max(a[0] - b[2], b[0] - a[2], a[1] - b[3], b[1] - a[3], 0);
     const mine = st.figures.filter(o => o.page === f.page);
     return P.caps.find(c => gap(c, f.box) < 60 && mine.every(o => gap(c, o.box) >= gap(c, f.box)) &&
@@ -167,7 +168,7 @@
   function findAllFigures() {
     st.figures = [];
     doc.pages.forEach((p, i) => {
-      let boxes = E.findFigures(p.figInk, p.canvas.width, p.canvas.height, S).map(b => b.map(v => v / S));
+      let boxes = E.findFigures(p.figInk, p.canvas.width, p.canvas.height, S, p.capsPx).map(b => b.map(v => v / S));
       if (!boxes.length) boxes = [[MARGIN.l, MARGIN.t, p.w - MARGIN.r, p.h - MARGIN.b]];
       for (const b of boxes) {
         const pad = 4;
@@ -176,7 +177,122 @@
     });
     renumberFigures();
   }
-  function renumberFigures() { st.figures.forEach((f, i) => { f.num = String(i + 1); }); }
+  // Figures take the numbers written in their captions when most of them can be read
+  // and the rest follow from their neighbours (between 3 and 4b comes 4a); otherwise
+  // they are numbered in order.
+  function renumberFigures() {
+    const read = fillNumbers(st.figures.map(f => { const c = drawnCaption(f); return c && captionNumber(f.page, c); }));
+    st.figures.forEach((f, i) => { f.num = read ? read[i] : String(i + 1); });
+  }
+  function fillNumbers(read) {
+    if (!read.length || read.filter(Boolean).length < 0.6 * read.length) return null;
+    const parse = t => { const m = /^(\d+)([a-z]?)$/i.exec(t || ''); return m && { n: +m[1], s: m[2] }; };
+    const shift = (c, d) => String.fromCharCode(c.charCodeAt(0) + d);
+    const out = read.slice();
+    for (let i = 0; i < out.length; i++) {
+      if (out[i]) continue;
+      const p = parse(out[i - 1]), q = parse(read.slice(i + 1).find(Boolean)), nextKnown = !!read[i + 1];
+      let g = null;
+      if (p && p.s) g = p.n + shift(p.s, 1);                              // 5a -> 5b
+      else if (q && q.s && nextKnown && q.s.toLowerCase() > 'a') g = q.n + shift(q.s, -1);   // -> 4a before 4b
+      else if (p) g = String(p.n + 1);
+      else if (q && nextKnown && !q.s && q.n > 1) g = String(q.n - 1);
+      if (!g) return null;
+      out[i] = g;
+    }
+    return new Set(out).size === out.length ? out : null;
+  }
+
+  // Reads the number in a drawn caption ("FIG. 4a") by matching each mark against the
+  // letters and digits of a few common typefaces. Returns null when it is not sure.
+  const GW = 8, GH = 12;
+  let glyphs = null;
+  function glyphVec(get, x0, y0, w, h) {          // share of ink in each cell of a GW x GH grid
+    const v = new Float32Array(GW * GH);
+    for (let gy = 0; gy < GH; gy++) for (let gx = 0; gx < GW; gx++) {
+      const ax = Math.floor(x0 + gx * w / GW), bx = Math.max(ax + 1, Math.ceil(x0 + (gx + 1) * w / GW));
+      const ay = Math.floor(y0 + gy * h / GH), by = Math.max(ay + 1, Math.ceil(y0 + (gy + 1) * h / GH));
+      let n = 0, t = 0;
+      for (let y = ay; y < by; y++) for (let x = ax; x < bx; x++) { t++; n += get(x, y); }
+      v[gy * GW + gx] = n / t;
+    }
+    return v;
+  }
+  function glyphTemplates() {
+    if (glyphs) return glyphs;
+    glyphs = [];
+    const c = document.createElement('canvas'); c.width = 90; c.height = 100;
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    for (const fam of ['AlzSans', 'Arial', 'Helvetica', 'sans-serif', 'Times New Roman', 'serif'])
+      for (const style of ['', 'italic ', 'bold ']) {
+        let capH = 0;
+        for (const ch of 'H0123456789abcdefghABCDEFGI') {
+          ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 90, 100);
+          ctx.fillStyle = '#000'; ctx.font = `${style}64px ${fam}`; ctx.fillText(ch, 12, 80);
+          const d = ctx.getImageData(0, 0, 90, 100).data, get = (x, y) => d[(y * 90 + x) * 4] < 128 ? 1 : 0;
+          let x0 = 90, y0 = 100, x1 = -1, y1 = -1;
+          for (let y = 0; y < 100; y++) for (let x = 0; x < 90; x++) if (get(x, y)) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+          if (x1 < 0) continue;
+          if (!capH) capH = y1 - y0 + 1;                  // 'H' comes first: the capital height
+          glyphs.push({ ch, ar: (x1 - x0 + 1) / (y1 - y0 + 1), hr: (y1 - y0 + 1) / capH, v: glyphVec(get, x0, y0, x1 - x0 + 1, y1 - y0 + 1) });
+        }
+      }
+    return glyphs;
+  }
+  function captionNumber(page, cap) {
+    const P = doc.pages[page]; if (!P || !P.ink) return null;
+    const W = P.canvas.width, H = P.canvas.height, ink = P.ink;
+    const lh = (cap[3] - cap[1]) * S;
+    const bx = [Math.max(0, Math.floor(cap[0] * S) - 2), Math.max(0, Math.floor(cap[1] * S) - 2),
+                Math.min(W, Math.ceil(cap[2] * S + 0.8 * lh)), Math.min(H, Math.ceil(cap[3] * S) + 2)];
+    // the marks in the caption, left to right; pieces stacked over each other are one mark
+    const seen = new Uint8Array((bx[2] - bx[0]) * (bx[3] - bx[1])), marks = [];
+    const at = (x, y) => (y - bx[1]) * (bx[2] - bx[0]) + (x - bx[0]);
+    for (let y = bx[1]; y < bx[3]; y++) for (let x = bx[0]; x < bx[2]; x++) {
+      if (!ink[y * W + x] || seen[at(x, y)]) continue;
+      const m = [x, y, x, y], q = [[x, y]]; seen[at(x, y)] = 1;
+      while (q.length) {
+        const [a, b] = q.pop();
+        if (a < m[0]) m[0] = a; if (a > m[2]) m[2] = a; if (b < m[1]) m[1] = b; if (b > m[3]) m[3] = b;
+        for (const [u, w] of [[a - 1, b], [a + 1, b], [a, b - 1], [a, b + 1]])
+          if (u >= bx[0] && u < bx[2] && w >= bx[1] && w < bx[3] && ink[w * W + u] && !seen[at(u, w)]) { seen[at(u, w)] = 1; q.push([u, w]); }
+      }
+      marks.push(m);
+    }
+    marks.sort((a, b) => a[0] - b[0]);
+    for (let i = 1; i < marks.length; i++) {
+      const a = marks[i - 1], b = marks[i], ov = Math.min(a[2], b[2]) - Math.max(a[0], b[0]);
+      if (ov > 0.5 * Math.min(a[2] - a[0], b[2] - b[0])) { marks[i - 1] = [Math.min(a[0], b[0]), Math.min(a[1], b[1]), Math.max(a[2], b[2]), Math.max(a[3], b[3])]; marks.splice(i--, 1); }
+    }
+    const big = marks.filter(m => m[3] - m[1] + 1 >= 0.45 * lh);       // drops the period and specks
+    if (big.length < 4) return null;
+    const T = glyphTemplates();
+    const capH = big[0][3] - big[0][1] + 1;                   // the F
+    const read = (m, allowed) => {
+      const w = m[2] - m[0] + 1, h = m[3] - m[1] + 1, ar = w / h, hr = h / capH;
+      const v = glyphVec((x, y) => ink[y * W + x], m[0], m[1], w, h);
+      const by = {};                                       // closest template per character
+      for (const t of T) {
+        if (!allowed.includes(t.ch)) continue;
+        let d = 0; for (let i = 0; i < v.length; i++) d += Math.abs(v[i] - t.v[i]);
+        d = d / v.length + 0.4 * Math.abs(Math.log(ar / t.ar)) + 0.6 * Math.abs(Math.log(hr / t.hr));
+        if (!(t.ch in by) || d < by[t.ch]) by[t.ch] = d;
+      }
+      const r = Object.entries(by).sort((a, b) => a[1] - b[1]);
+      const best = { ch: r[0][0], d: r[0][1], d2: r[1] ? r[1][1] : 9 };
+      return best;
+    };
+    // "FIG" first (an italic serif F reads much like an E), then digits and a letter
+    const fig = big.slice(0, 3).map(m => read(m, 'FIGABCDEH'));
+    if (!/^[FE]IG$/.test(fig.map(r => r.ch).join('')) || fig.some(r => r.d > 0.3)) return null;
+    let num = '';
+    for (const [i, m] of big.slice(3).entries()) {
+      const r = read(m, i ? '0123456789abcdefghABCDEFGH' : '0123456789');
+      if (r.d > 0.3 || r.d2 - r.d < 0.03) return null;
+      num += r.ch;
+    }
+    return /^\d+[a-hA-H]?$/.test(num) ? num : null;
+  }
 
   function buildSheets() {
     sheets = [];
@@ -1253,8 +1369,10 @@
     return openBytes(f.name, f.type, bytes);
   }
   // Opens a drawing. With `restore`, the labels come back as saved.
+  let openSeq = 0;
   async function openBytes(name, type, bytes, restore, note) {
     status('Opening ' + name + '…');
+    const seq = ++openSeq;                     // a file opened meanwhile wins
     try {
       await fontsReady;
       let d;
@@ -1275,9 +1393,9 @@
         const k = 72 / 200;                       // scans are usually 200 dpi
         d = { name, kind: 'image', bytes, mime, pages: [{ w: img.naturalWidth * k, h: img.naturalHeight * k, img }] };
       }
+      for (const p of d.pages) { await renderSource(p); if (seq !== openSeq) return; }
       doc = d;
       $('fname').textContent = `${name} · ${d.pages.length} sheet${d.pages.length > 1 ? 's' : ''}`;
-      for (const p of doc.pages) await renderSource(p);
       undoStack.length = 0; redoStack.length = 0; selection = []; activePart = null;
       if (!restore && pendingProject && pendingProject.file && pendingProject.file.pages === doc.pages.length) { restore = pendingProject.state; note = 'Project restored.'; }
       pendingProject = null;
