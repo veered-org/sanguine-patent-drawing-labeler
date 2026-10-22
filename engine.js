@@ -330,6 +330,40 @@
       }
       if (!improved) break;
     }
+    // Numerals on the same side of their tips and near each other line up on the edge
+    // their leaders leave from, when the move costs nothing: still clear paper, no
+    // more lines crossed, no collisions.
+    const sideOf = c => c.ctrl ? 0 : c.end[0] >= c.box[2] ? 1 : c.end[0] <= c.box[0] ? -1 : 0;
+    const cl = 10 * k;
+    for (const side of [1, -1]) {
+      const edge = c => side > 0 ? c.box[2] : c.box[0];
+      const group = order.filter(it => !it.fixed && chosen.get(it) && sideOf(chosen.get(it)) === side)
+        .sort((a, b) => chosen.get(a).box[1] - chosen.get(b).box[1]);
+      const clusters = [];
+      for (const it of group) {
+        const c = chosen.get(it);
+        const cu = clusters.find(q => Math.abs(edge(c) - q.edge) < 14 * k && c.box[1] - q.bottom < 160 * k);
+        if (cu) { cu.items.push(it); cu.bottom = c.box[3]; } else clusters.push({ edge: edge(c), bottom: c.box[3], items: [it] });
+      }
+      for (const cu of clusters) {
+        if (cu.items.length < 2) continue;
+        const edges = cu.items.map(it => edge(chosen.get(it))).sort((a, b) => a - b), target = edges[edges.length >> 1];
+        for (const it of cu.items) {
+          const c = chosen.get(it), dx = target - edge(c);
+          if (Math.abs(dx) < 0.5) continue;
+          const box = [c.box[0] + dx, c.box[1], c.box[2] + dx, c.box[3]], sg = this.sight;
+          if (box[0] < sg[0] || box[2] > sg[2]) continue;
+          if (this.clear.sum(box[0] - cl, box[1] - cl, box[2] + cl, box[3] + cl)) continue;
+          if (this.sil.sum(box[0] - cl, box[1] - cl, box[2] + cl, box[3] + cl) && !this.sil.sum(c.box[0] - cl, c.box[1] - cl, c.box[2] + cl, c.box[3] + cl)) continue;
+          const end = edgePoint(c.tip, box, 5 * k), [r1, on1] = this.crossings(c.tip, c.end), [r2, on2] = this.crossings(c.tip, end);
+          if (r2 > r1 || on2 > on1 + 2) continue;
+          const nc = { cost: c.cost, box, end, tip: c.tip, segs: [[c.tip, end]] };
+          const others = order.filter(o => o !== it && chosen.get(o));
+          if (!ok(it, nc, obstacles.boxes.concat(others.map(boxOf)), obstacles.segs.concat(...others.map(segOf)))) continue;
+          chosen.set(it, nc);
+        }
+      }
+    }
     const res = {};
     for (const it of its) {
       const c = chosen.get(it);
