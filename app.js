@@ -1830,13 +1830,13 @@
 
 Please:
 1. Identify each separate figure (view)${figs ? '. These are the figures I have; keep their numbers unless they are wrong:\n' + figs : ', numbered FIG. 1, FIG. 2 … in reading order (or as already numbered on the sheets).'}
-2. List the parts and features the specification will refer to. ${parts ? 'Use these numerals and names, and add any part that is missing:\n' + parts + '\n' : 'Give each one a reference numeral: even numbers from 10 upward (10, 12, 14 …), in order of importance, the same numeral for the same part in every figure.'} Use letter suffixes (26a, 26b) only for identical parts that the text must tell apart.
+2. List the parts and features the specification will refer to. ${parts ? 'Use these numerals and names, and add any part that is missing:\n' + parts + '\n' : 'Give each one a reference numeral: even numbers from 10 upward (10, 12, 14 …), in order of importance, the same numeral for the same part in every figure.'} Use letter suffixes (26a, 26b) only for identical parts that the text must tell apart. Mark a numeral that names a whole assembly or the device as a whole (not one part of it) with "assembly": true; its leader gets an arrowhead (37 CFR 1.84(r)).
 3. For every figure in which a part is visible, give a point that lies exactly ON a drawn line of that part (never in empty space or inside a hollow outline), as [x, y] in grid percent with one decimal. If the part is easy to hit in more than one place, give up to four points; the first is the preferred one. Skip a part in a figure where it cannot be seen.
 
 Answer with only this JSON, nothing else:
 {
   "figures": [{"fig": "1", "sheet": 1, "box": [x0, y0, x1, y1], "view": "front perspective view of the walker"}],
-  "parts":   [{"n": "10", "name": "frame"}],
+  "parts":   [{"n": "10", "name": "walker", "assembly": true}, {"n": "12", "name": "frame", "assembly": false}],
   "labels":  [{"fig": "1", "n": "10", "at": [[x, y], [x, y]]}]
 }
 ("box" is the figure's extent in grid percent: left, top, right, bottom. "view" says what the figure shows, as it would follow "FIG. 1 is a" in the Brief Description of the Drawings.)`;
@@ -1846,8 +1846,8 @@ Answer with only this JSON, nothing else:
     properties: {
       figures: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['fig', 'sheet', 'box', 'view'],
         properties: { fig: { type: 'string' }, sheet: { type: 'integer' }, box: { type: 'array', items: { type: 'number' } }, view: { type: 'string' } } } },
-      parts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'name'],
-        properties: { n: { type: 'string' }, name: { type: 'string' } } } },
+      parts: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['n', 'name', 'assembly'],
+        properties: { n: { type: 'string' }, name: { type: 'string' }, assembly: { type: 'boolean' } } } },
       labels: { type: 'array', items: { type: 'object', additionalProperties: false, required: ['fig', 'n', 'at'],
         properties: { fig: { type: 'string' }, n: { type: 'string' }, at: { type: 'array', items: { type: 'array', items: { type: 'number' } } } } } },
     },
@@ -1957,8 +1957,10 @@ Answer with only this JSON, nothing else:
         st.figures = nf;
       }
     }
+    const whole = new Set();                         // numerals naming a whole assembly: arrows
     for (const p of j.parts || []) {
       const n = String(p.n || '').trim(), name = String(p.name || '').trim(); if (!n) continue;
+      if (p.assembly === true) whole.add(n);
       const ex = st.parts.find(q => q.n === n);
       if (ex) { if (!ex.name) ex.name = name; } else st.parts.push({ id: nid(), n, name });
     }
@@ -1978,7 +1980,7 @@ Answer with only this JSON, nothing else:
         tips.push(Ti(g, pt(sp)));
       }
       if (!tips.length) continue;
-      st.labels.push({ id: nid(), part: part.id, text: n === part.n ? null : n, fig: f.id, tip: tips[0], alts: tips.slice(1), pos: null, pinned: false, style: 'line' });
+      st.labels.push({ id: nid(), part: part.id, text: n === part.n ? null : n, fig: f.id, tip: tips[0], alts: tips.slice(1), pos: null, pinned: false, style: whole.has(n) || whole.has(part.n) ? 'arrow' : 'line' });
       count++;
     }
     renderLists();

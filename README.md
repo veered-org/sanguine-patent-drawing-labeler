@@ -121,6 +121,9 @@ you tick *Remember*.
 4. Copy Claude's whole reply, press **Paste Claude's answer**, and import it.
 
 Either way, each point is snapped to the nearest line and the labels are placed.
+Claude also says what each figure shows (it goes into the Brief Description of the
+Drawings in the Word file) and which numerals name a whole assembly; those leaders
+get an arrowhead (37 CFR 1.84(r)).
 **Check every leader.** Claude reads positions off a picture and will sometimes pick
 the wrong line. Drag the tip to fix it.
 
