@@ -5,7 +5,7 @@
 **Runs on** any web browser: nothing to install, and the drawing never leaves your computer
 (unless you choose *Ask Claude*, which sends the sheet images to Anthropic with your own key).
 
-**Version 2.0.**
+**Version 2.2.**
 
 Part of [Veered](https://veered.org): free tools, shared as-is. Questions: support@veered.org
 
