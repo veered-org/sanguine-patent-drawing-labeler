@@ -677,6 +677,14 @@
     const inSight = (sh, b) => sh && b[0] >= MARGIN.l - 0.5 && b[1] >= MARGIN.t - 0.5 && b[2] <= sh.w - MARGIN.r + 0.5 && b[3] <= sh.h - MARGIN.b + 0.5;
     for (const l of sortL) if (l.pos && !inSight(sheetOfFig(l.fig), l.pos.box)) items.push({ cls: 'bad', text: `${labelText(l)} in FIG. ${fnum(l.fig)} is in the margin (37 CFR 1.84(g))`, label: l });
     if (st.opts.figlabels) for (const f of st.figures) { const fl = st.figLabels[f.id]; if (fl && fl.box && !inSight(sheetOfFig(f.id), fl.box)) items.push({ cls: 'bad', text: `The FIG. ${f.num} label is in the margin (37 CFR 1.84(g))` }); }
+    const touches = l => {             // the tip sits on a drawn line
+      const sh = sheetOfFig(l.fig); if (!sh || !l.pos) return true;
+      const e = engineFor(sh), x = Math.round(l.pos.tip[0] * S), y = Math.round(l.pos.tip[1] * S);
+      for (let yy = y - 3; yy <= y + 3; yy++) for (let xx = x - 3; xx <= x + 3; xx++)
+        if (xx >= 0 && yy >= 0 && xx < e.W && yy < e.H && e.ink[yy * e.W + xx]) return true;
+      return false;
+    };
+    for (const l of sortL) if (l.pos && l.style !== 'none' && !touches(l)) items.push({ cls: 'bad', text: `${labelText(l)} in FIG. ${fnum(l.fig)}: the leader does not touch a line of the drawing`, label: l });
     for (const l of sortL) if (l.pos && l.pos.cross) items.push({ cls: '', text: `${labelText(l)} in FIG. ${fnum(l.fig)}: the leader crosses ${l.pos.cross} line${l.pos.cross > 1 ? 's' : ''}`, label: l });
     // 37 CFR 1.84(p)(3): numbers and letters at least 0.32 cm (1/8 inch, 9 pt) high;
     // Liberation Sans digits stand 1409/2048 of the font size
@@ -1945,7 +1953,7 @@ Answer with only this JSON, nothing else:
       const tips = [];
       for (const q of pts(l.at)) {
         const s = T(g, toPt(f.page, q)).map(v => v * S);
-        const sp = eng.snap(s[0], s[1], Math.round(12 * S)) || s;
+        const sp = eng.snap(s[0], s[1], Math.round(12 * S)) || eng.snap(s[0], s[1], Math.round(24 * S)) || s;
         tips.push(Ti(g, pt(sp)));
       }
       if (!tips.length) continue;
