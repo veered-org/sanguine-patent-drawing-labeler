@@ -53,18 +53,16 @@
   function silhouette(ink, W, H, close) {
     const big = dilate(new Grid(ink, W, H), close);
     const outside = new Uint8Array(W * H);
-    const stack = [];
-    for (let x = 0; x < W; x++) { stack.push(x, (H - 1) * W + x); }
-    for (let y = 0; y < H; y++) { stack.push(y * W, y * W + W - 1); }
-    while (stack.length) {
-      const i = stack.pop();
-      if (outside[i] || big[i]) continue;
-      outside[i] = 1;
-      const x = i % W;
-      if (x > 0) stack.push(i - 1);
-      if (x < W - 1) stack.push(i + 1);
-      if (i >= W) stack.push(i - W);
-      if (i < W * (H - 1)) stack.push(i + W);
+    const stack = new Int32Array(W * H + 2 * (W + H)); let sp = 0;   // each px is pushed once
+    const push = i => { if (!outside[i] && !big[i]) { outside[i] = 1; stack[sp++] = i; } };
+    for (let x = 0; x < W; x++) { push(x); push((H - 1) * W + x); }
+    for (let y = 0; y < H; y++) { push(y * W); push(y * W + W - 1); }
+    while (sp) {
+      const i = stack[--sp], x = i % W;
+      if (x > 0) push(i - 1);
+      if (x < W - 1) push(i + 1);
+      if (i >= W) push(i - W);
+      if (i < W * (H - 1)) push(i + W);
     }
     // erode the sealed shape back by the same radius (= dilate the outside)
     const og = dilate(new Grid(outside, W, H), close);
@@ -174,9 +172,22 @@
     }
     const out = [], cl = 10 * k, inner = 30 * k, snugCl = 16 * k;
     const fc = it.center || [this.W / 2, this.H / 2];
+    // Every spot on one ray shares its leader's first stretch, so the ray is walked once:
+    // runsAt[i] / onAt[i] = lines crossed / ink px over the first i px (as crossings()).
+    const maxL = Math.ceil(760 * k) + 2, skip = Math.round(10 * k);
+    const runsAt = new Int32Array(maxL + 1), onAt = new Int32Array(maxL + 1);
     for (const tip of it.tips) {
       for (let ang = 0; ang < 360; ang += 10) {
         const a = ang * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
+        let runs = 0, on = 0, prev = 0;
+        for (let i = 0; i <= maxL; i++) {
+          runsAt[i] = runs; onAt[i] = on;
+          if (i < skip) continue;
+          const x = Math.round(tip[0] + ca * i), y = Math.round(tip[1] + sa * i);
+          const v = (x >= 0 && y >= 0 && x < this.W && y < this.H) ? this.inkd[y * this.W + x] : 0;
+          if (v) { on++; if (!prev) runs++; }
+          prev = v;
+        }
         for (let dist = 48 * k; dist < 760 * k; dist += 16 * k) {
           const cx = tip[0] + ca * dist, cy = tip[1] + sa * dist;
           const box = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
@@ -189,28 +200,34 @@
             if (this.clear.sum(box[0] - snugCl, box[1] - snugCl, box[2] + snugCl, box[3] + snugCl)) continue;
             snug = true;
           }
-          const end = edgePoint(tip, box, 5 * k);
-          const [r, on] = this.crossings(tip, end);
-          const L = Math.hypot(tip[0] - end[0], tip[1] - end[1]) / k;
+          const end = edgePoint(tip, box, 5 * k), Lpx = Math.hypot(tip[0] - end[0], tip[1] - end[1]);
+          const r = runsAt[Math.floor(Lpx)], on = onAt[Math.floor(Lpx)], L = Lpx / k;
           const v = [tip[0] - fc[0], tip[1] - fc[1]], u = [cx - tip[0], cy - tip[1]];
           const cos = (v[0] * u[0] + v[1] * u[1]) / ((Math.hypot(v[0], v[1]) || 1) * (Math.hypot(u[0], u[1]) || 1));
           const base = (1 - cos) * 40 + (inside ? (snug ? 1000 : 600) : 0);
           const cost = r * 600 + (on / k) * 4 + lenCost(L) + base;
-          out.push({ cost, box, end, tip, segs: [[tip, end]] });
-          if (r && !straight) {
-            const D = Math.hypot(cx - tip[0], cy - tip[1]), nx = -(cy - tip[1]) / D, ny = (cx - tip[0]) / D;
-            for (const b of BENDS) {
-              const off = Math.sign(b) * Math.min(Math.abs(b) * D, 30 * k * (Math.abs(b) > 0.3 ? 1.6 : 1));
-              const ctrl = [(tip[0] + cx) / 2 + nx * off, (tip[1] + cy) / 2 + ny * off];
-              const e2 = edgePoint(ctrl, box, 5 * k), pts = quad(tip, ctrl, e2, 12);
-              const [r2, on2] = this.crossingsPath(pts);
-              if (r2 >= r) continue;
-              let L2 = 0; for (let i = 1; i < pts.length; i++) L2 += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
-              const seg6 = quad(tip, ctrl, e2, 6), segs = [];
-              for (let i = 1; i < seg6.length; i++) segs.push([seg6[i - 1], seg6[i]]);
-              out.push({ cost: r2 * 600 + (on2 / k) * 4 + lenCost(L2 / k) + base + 60 + 80 * Math.abs(b), box, end: e2, tip, ctrl, segs });
-            }
-          }
+          out.push({ cost, box, end, tip, segs: [[tip, end]], r, base, cx, cy });
+        }
+      }
+    }
+    // Bends, only for spots that could beat the best straight leader once a crossing
+    // is avoided (a bend costs at least 80).
+    if (!straight && out.length) {
+      const best = out.reduce((m, c) => Math.min(m, c.cost), Infinity);
+      const hope = out.filter(c => c.r && c.cost - 600 * c.r + 80 < best + 600).sort((a, b) => a.cost - b.cost).slice(0, 400);
+      for (const c of hope) {
+        const { tip, box, cx, cy, r, base } = c;
+        const D = Math.hypot(cx - tip[0], cy - tip[1]), nx = -(cy - tip[1]) / D, ny = (cx - tip[0]) / D;
+        for (const b of BENDS) {
+          const off = Math.sign(b) * Math.min(Math.abs(b) * D, 30 * k * (Math.abs(b) > 0.3 ? 1.6 : 1));
+          const ctrl = [(tip[0] + cx) / 2 + nx * off, (tip[1] + cy) / 2 + ny * off];
+          const e2 = edgePoint(ctrl, box, 5 * k), pts = quad(tip, ctrl, e2, 12);
+          const [r2, on2] = this.crossingsPath(pts);
+          if (r2 >= r) continue;
+          let L2 = 0; for (let i = 1; i < pts.length; i++) L2 += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+          const seg6 = quad(tip, ctrl, e2, 6), segs = [];
+          for (let i = 1; i < seg6.length; i++) segs.push([seg6[i - 1], seg6[i]]);
+          out.push({ cost: r2 * 600 + (on2 / k) * 4 + lenCost(L2 / k) + base + 60 + 80 * Math.abs(b), box, end: e2, tip, ctrl, segs });
         }
       }
     }
