@@ -1708,7 +1708,10 @@
       ['top', 'left', 'bottom', 'right', 'insideH', 'insideV'].map(s => `<w:${s} w:val="single" w:sz="4" w:space="0" w:color="999999"/>`).join('') +
       `</w:tblBorders><w:tblCellMar><w:left w:w="100" w:type="dxa"/><w:right w:w="100" w:type="dxa"/></w:tblCellMar></w:tblPr><w:tblGrid>${widths.map(w => `<w:gridCol w:w="${w}"/>`).join('')}</w:tblGrid>` +
       `<w:tr><w:trPr><w:tblHeader/></w:trPr>${cell('Numeral', widths[0], { b: true, shade: true })}${cell('Element', widths[1], { b: true, shade: true })}${cell('Shown in', widths[2], { b: true, shade: true })}</w:tr>` +
-      rows.map(r => `<w:tr>${cell(r.n, widths[0])}${cell(r.name, widths[1])}${cell(figsText(r.figs), widths[2])}</w:tr>`).join('') + '</w:tbl>';
+      rows.map(r => `<w:tr>${cell(r.n, widths[0])}${cell(r.name, widths[1])}${cell(figsText(r.figs), widths[2])}</w:tr>`).join('') + '</w:tbl>' +
+      // a start on the specification's list of figures, to fill in
+      (st.figures.length ? P('', { after: 240 }) + P(R('BRIEF DESCRIPTION OF THE DRAWINGS', { b: true }), { after: 200 }) +
+        st.figures.map((f, i) => P(R(`FIG. ${f.num} is a ________ view of ________${i === st.figures.length - 1 ? '.' : ';'}`))).join('') : '');
     const docXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}<w:sectPr><w:pgSz w:w="12240" w:h="15840"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/></w:sectPr></w:body></w:document>`;
     const z = new JSZip();
     z.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8" standalone="yes"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>');

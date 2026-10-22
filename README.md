@@ -86,7 +86,8 @@ The small orange dots mark leaders that had to cross one line of the drawing.*
   - an **editable PowerPoint**. The drawing is a picture, and each numeral, leader,
     text and line is its own shape.
   - the **reference numeral list**: a Word table with Numeral, Element and "Shown
-    in" (FIGS. 1–3 and 5) columns, plus plain-text and CSV copies.
+    in" (FIGS. 1–3 and 5) columns, followed by a "Brief Description of the Drawings"
+    with a line to fill in for each figure; plus plain-text and CSV copies.
 
 ## How you use it
 
