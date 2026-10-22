@@ -558,12 +558,21 @@
     const fnum = id => (figById(id) || {}).num;
     const sortL = st.labels.slice().sort((a, b) => st.figures.indexOf(figById(a.fig)) - st.figures.indexOf(figById(b.fig)) || cmpNum(labelText(a), labelText(b)));
     for (const l of sortL) if (!l.pos) items.push({ cls: 'bad', text: `${labelText(l)} in FIG. ${fnum(l.fig)} found no room: drag it into place`, label: l });
+    const inSight = (sh, b) => sh && b[0] >= MARGIN.l - 0.5 && b[1] >= MARGIN.t - 0.5 && b[2] <= sh.w - MARGIN.r + 0.5 && b[3] <= sh.h - MARGIN.b + 0.5;
+    for (const l of sortL) if (l.pos && !inSight(sheetOfFig(l.fig), l.pos.box)) items.push({ cls: 'bad', text: `${labelText(l)} in FIG. ${fnum(l.fig)} is in the margin (37 CFR 1.84(g))`, label: l });
+    if (st.opts.figlabels) for (const f of st.figures) { const fl = st.figLabels[f.id]; if (fl && fl.box && !inSight(sheetOfFig(f.id), fl.box)) items.push({ cls: 'bad', text: `The FIG. ${f.num} label is in the margin (37 CFR 1.84(g))` }); }
     for (const l of sortL) if (l.pos && l.pos.cross) items.push({ cls: '', text: `${labelText(l)} in FIG. ${fnum(l.fig)}: the leader crosses ${l.pos.cross} line${l.pos.cross > 1 ? 's' : ''}`, label: l });
+    // 37 CFR 1.84(p)(3): numbers and letters at least 0.32 cm (1/8 inch, 9 pt) high;
+    // Liberation Sans digits stand 1409/2048 of the font size
+    if (st.labels.length && st.opts.fs * 1409 / 2048 < 9) items.push({ cls: 'bad', text: `Numerals at ${st.opts.fs} pt are under 1/8 inch tall (37 CFR 1.84(p)(3)): use 13 pt or more` });
+    if (st.notes.some(n => n.kind === 'text' && (n.size || NOTE_FS) * 1409 / 2048 < 9)) items.push({ cls: '', text: 'Some text is under 1/8 inch tall (37 CFR 1.84(p)(3))' });
     const seen = {};
     for (const p of st.parts) { if (seen[p.n]) items.push({ cls: 'bad', text: `Numeral ${p.n} is used for two parts (${seen[p.n]}, ${p.name})` }); seen[p.n] = p.name; }
     const fseen = {};
     for (const f of st.figures) { if (!f.num) items.push({ cls: 'bad', text: 'A figure has no number' }); else if (fseen[f.num]) items.push({ cls: 'bad', text: `Two figures are numbered FIG. ${f.num}` }); fseen[f.num] = 1; }
     if (st.labels.length) for (const p of st.parts) if (!st.labels.some(l => l.part === p.id)) items.push({ cls: 'info', text: `${p.n} ${p.name} is not shown in any figure`, part: p });
+    const rank = { bad: 0, '': 1, info: 2 };
+    items.sort((a, b) => rank[a.cls] - rank[b.cls]);         // stable: problems first
     issueTargets = items;
     $('issues').innerHTML = items.length ? items.slice(0, 200).map((it, i) => `<li class="${it.cls}" data-i="${i}">${esc(it.text)}</li>`).join('')
       : (st.labels.length ? '<li class="info">Nothing to flag. Still look at every leader.</li>' : '');
@@ -1667,7 +1676,8 @@
   function claudePrompt() {
     const figs = doc ? st.figures.map(f => {
       const P = doc.pages[f.page], b = f.box;
-      return `  FIG. ${f.num}: sheet ${f.page + 1}, box ${[b[0] / P.w, b[1] / P.h, b[2] / P.w, b[3] / P.h].map(v => Math.round(v * 100)).join(', ')}`;
+      return `  FIG. ${f.num}: sheet ${f.page + 1}, box ${[b[0] / P.w, b[1] / P.h, b[2] / P.w, b[3] / P.h].map(v => Math.round(v * 100)).join(', ')}` +
+        (figCaption(f) ? ' (it has a caption drawn under or beside it: use the number written there)' : '');
     }).join('\n') : '';
     const parts = st.parts.map(p => `  ${p.n} ${p.name}`).join('\n');
     return `I am preparing the drawings for a patent application and need reference numerals added. The attached images are the drawing sheets, one per sheet${doc ? ` (${doc.pages.length} in all)` : ''}, with a blue grid: the numbers along the edges are percent of the sheet's width (left to right) and height (top to bottom).
