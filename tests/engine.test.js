@@ -64,4 +64,14 @@ for (let i = 0; i < 5; i++) rect(520 + i * 24, 1400, 536 + i * 24, 1428);
 const caps = E.findCaptions(ink, W, H, S);
 assert.strictEqual(caps.length, 1, 'caption found');
 assert(caps[0][1] >= 1400 && caps[0][3] <= 1430, 'caption box');
+// grey, unevenly lit paper (a photographed sketch): the paper is not ink, the lines are
+{
+  const w = 400, h = 300, g = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) g[y * w + x] = 120 + Math.round(60 * x / w);
+  for (let x = 50; x < 350; x++) g[150 * w + x] = g[151 * w + x] = 40 + Math.round(30 * x / w);
+  const m = E.inkFromGray(g, w, h);
+  let n = 0; for (const v of m) n += v;
+  assert(m[150 * w + 200] && m[151 * w + 300], 'lines are ink');
+  assert(n < 700, 'grey paper is not ink (' + n + ')');
+}
 console.log('ok');

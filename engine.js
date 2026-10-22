@@ -508,14 +508,49 @@
     return out;
   }
 
-  // Dark pixels of an RGBA canvas buffer.
+  // Dark pixels of an RGBA canvas buffer. Without a fixed threshold, "dark" is judged
+  // against the paper around each pixel (its local brightness, in 16 px blocks), so a
+  // photographed or grey scan works too; on paper lighter than ~215 it is the plain
+  // 190 cut.
   function inkFromRGBA(data, W, H, threshold) {
-    threshold = threshold || 190;
-    const ink = new Uint8Array(W * H);
+    const gray = new Uint8Array(W * H);
     for (let i = 0, p = 0; i < W * H; i++, p += 4) {
       const a = data[p + 3] / 255;
-      const g = (0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2]) * a + 255 * (1 - a);
-      if (g < threshold) ink[i] = 1;
+      gray[i] = (0.299 * data[p] + 0.587 * data[p + 1] + 0.114 * data[p + 2]) * a + 255 * (1 - a);
+    }
+    return inkFromGray(gray, W, H, threshold);
+  }
+  function inkFromGray(gray, W, H, threshold) {
+    const ink = new Uint8Array(W * H);
+    if (threshold) { for (let i = 0; i < W * H; i++) ink[i] = gray[i] < threshold ? 1 : 0; return ink; }
+    const B = 16, bw = Math.ceil(W / B), bh = Math.ceil(H / B), paper = new Float32Array(bw * bh);
+    const hist = new Int32Array(256);
+    for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+      hist.fill(0); let n = 0;
+      for (let y = by * B; y < Math.min(H, by * B + B); y++) for (let x = bx * B; x < Math.min(W, bx * B + B); x++) { hist[gray[y * W + x]]++; n++; }
+      let c = 0, v = 255;
+      for (; v > 0; v--) { c += hist[v]; if (c >= 0.1 * n) break; }   // the brightest tenth: paper
+      paper[by * bw + bx] = v;
+    }
+    // a block that is all drawing (dense hatching) takes the paper of its neighbours, and
+    // never counts as darker than 0.6 of the page's usual paper (a large black fill)
+    const sorted = Float32Array.from(paper).sort(), floor = 0.6 * sorted[Math.floor(sorted.length / 2)];
+    const pb = new Float32Array(bw * bh);
+    for (let by = 0; by < bh; by++) for (let bx = 0; bx < bw; bx++) {
+      let m = 0;
+      for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) {
+        const x = bx + dx, y = by + dy;
+        if (x >= 0 && y >= 0 && x < bw && y < bh && paper[y * bw + x] > m) m = paper[y * bw + x];
+      }
+      pb[by * bw + bx] = Math.max(m, floor);
+    }
+    for (let y = 0; y < H; y++) {
+      const fy = Math.min(bh - 1, Math.max(0, (y + 0.5) / B - 0.5)), y0 = Math.floor(fy), y1 = Math.min(bh - 1, y0 + 1), ty = fy - y0;
+      for (let x = 0; x < W; x++) {
+        const fx = Math.min(bw - 1, Math.max(0, (x + 0.5) / B - 0.5)), x0 = Math.floor(fx), x1 = Math.min(bw - 1, x0 + 1), tx = fx - x0;
+        const p = (pb[y0 * bw + x0] * (1 - tx) + pb[y0 * bw + x1] * tx) * (1 - ty) + (pb[y1 * bw + x0] * (1 - tx) + pb[y1 * bw + x1] * tx) * ty;
+        ink[y * W + x] = gray[y * W + x] < Math.min(190, Math.max(50, p * 0.88)) ? 1 : 0;
+      }
     }
     return ink;
   }
@@ -526,7 +561,7 @@
     return m ? [m[1], m[2]] : [String(t).trim(), ''];
   }
 
-  const api = { Sheet, findFigures, findCaptions, inkFromRGBA, edgePoint, splitNumeral, segInter, segRect, boxesTouch };
+  const api = { Sheet, findFigures, findCaptions, inkFromRGBA, inkFromGray, edgePoint, splitNumeral, segInter, segRect, boxesTouch };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.SanguineEngine = api;
 })(typeof self !== 'undefined' ? self : this);
