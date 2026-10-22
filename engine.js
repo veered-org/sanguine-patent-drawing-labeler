@@ -379,7 +379,7 @@
   // lower half, then above it.
   Sheet.prototype.placeFigLabel = function (figBox, wh, placed, others) {
     const k = this.k, s = this.sight, [w, h] = wh;
-    const fcx = (figBox[0] + figBox[2]) / 2, c30 = 30 * k, p24 = 24 * k;
+    const fcx = (figBox[0] + figBox[2]) / 2, c30 = 30 * k, p24 = 36 * k;
     const gap = (a, b) => Math.max(a[0] - b[2], b[0] - a[2], a[1] - b[3], b[1] - a[3], 0);
     const free = box => {
       if (box[0] < s[0] || box[2] > s[2] || box[1] < s[1] || box[3] > s[3]) return false;
@@ -395,8 +395,13 @@
     const at = (cx, cy) => [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
     const dxs = [];
     for (let d = 0; d <= 500 * k; d += 10 * k) { dxs.push(d); if (d) dxs.push(-d); }
+    let best = null, bc = Infinity;                               // under it: centred, then lower, then aside
     for (let dy = 0; dy < 400 * k; dy += 8 * k)
-      for (const dx of dxs) { const box = at(fcx + dx, figBox[3] + 70 * k + dy); if (free(box)) return box; }
+      for (const dx of dxs) {
+        const c = Math.abs(dx) + 1.5 * dy; if (c >= bc) continue;
+        const box = at(fcx + dx, figBox[3] + 70 * k + dy); if (free(box)) { best = box; bc = c; }
+      }
+    if (best) return best;
     const midY = (figBox[1] + figBox[3]) / 2;
     for (let y = figBox[3] - h; y > midY; y -= 8 * k)             // beside the lower half
       for (let dx = 0; dx < 300 * k; dx += 10 * k)
