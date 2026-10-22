@@ -678,7 +678,7 @@
     for (const l of sortL) if (l.pos && !inSight(sheetOfFig(l.fig), l.pos.box)) items.push({ cls: 'bad', text: `${labelText(l)} in FIG. ${fnum(l.fig)} is in the margin (37 CFR 1.84(g))`, label: l });
     if (st.opts.figlabels) for (const f of st.figures) { const fl = st.figLabels[f.id]; if (fl && fl.box && !inSight(sheetOfFig(f.id), fl.box)) items.push({ cls: 'bad', text: `The FIG. ${f.num} label is in the margin (37 CFR 1.84(g))` }); }
     const touches = l => {             // the tip sits on a drawn line
-      const sh = sheetOfFig(l.fig); if (!sh || !l.pos) return true;
+      const sh = sheetOfFig(l.fig); if (!sh || !sh.ink || !l.pos) return true;
       const e = engineFor(sh), x = Math.round(l.pos.tip[0] * S), y = Math.round(l.pos.tip[1] * S);
       for (let yy = y - 3; yy <= y + 3; yy++) for (let xx = x - 3; xx <= x + 3; xx++)
         if (xx >= 0 && yy >= 0 && xx < e.W && yy < e.H && e.ink[yy * e.W + xx]) return true;
