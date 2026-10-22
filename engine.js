@@ -150,15 +150,29 @@
     return [runs, on];
   };
 
-  Sheet.prototype.candidates = function (it, measure) {
+  // A leader that would cross a line may bend round it: a quadratic curve whose control
+  // point sits this far (times the leader length, capped) to either side of the midpoint.
+  const BENDS = [-0.45, -0.25, 0.25, 0.45];
+  function quad(a, c, b, n) {
+    const out = [];
+    for (let i = 0; i <= n; i++) {
+      const t = i / n, u = 1 - t;
+      out.push([u * u * a[0] + 2 * u * t * c[0] + t * t * b[0], u * u * a[1] + 2 * u * t * c[1] + t * t * b[1]]);
+    }
+    return out;
+  }
+  // Short leaders are better; past about 55 pt they get expensive fast.
+  const lenCost = L => L * 0.25 + Math.max(0, L - 150) * 2;
+  Sheet.prototype.candidates = function (it, measure, straight) {
     const k = this.k, [w, h] = measure(it.text), s = this.sight;
     if (it.fixed) {
       const box = it.fixed;
       const c = [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
       const tip = it.tips.reduce((a, b) => Math.hypot(a[0] - c[0], a[1] - c[1]) <= Math.hypot(b[0] - c[0], b[1] - c[1]) ? a : b);
-      return [{ cost: 0, box, end: edgePoint(tip, box, 5 * k), tip }];
+      const end = edgePoint(tip, box, 5 * k);
+      return [{ cost: 0, box, end, tip, segs: [[tip, end]] }];
     }
-    const out = [], cl = 10 * k, inner = 30 * k;
+    const out = [], cl = 10 * k, inner = 30 * k, snugCl = 16 * k;
     const fc = it.center || [this.W / 2, this.H / 2];
     for (const tip of it.tips) {
       for (let ang = 0; ang < 360; ang += 10) {
@@ -169,14 +183,34 @@
           if (box[0] < s[0] || box[1] < s[1] || box[2] > s[2] || box[3] > s[3]) continue;
           if (this.clear.sum(box[0] - cl, box[1] - cl, box[2] + cl, box[3] + cl)) continue;
           const inside = this.sil.sum(box[0] - cl, box[1] - cl, box[2] + cl, box[3] + cl) > 0;
-          if (inside && this.clear.sum(box[0] - inner, box[1] - inner, box[2] + inner, box[3] + inner)) continue;
+          // inside the outline only in open space; a snug spot costs more
+          let snug = false;
+          if (inside && this.clear.sum(box[0] - inner, box[1] - inner, box[2] + inner, box[3] + inner)) {
+            if (this.clear.sum(box[0] - snugCl, box[1] - snugCl, box[2] + snugCl, box[3] + snugCl)) continue;
+            snug = true;
+          }
           const end = edgePoint(tip, box, 5 * k);
           const [r, on] = this.crossings(tip, end);
           const L = Math.hypot(tip[0] - end[0], tip[1] - end[1]) / k;
           const v = [tip[0] - fc[0], tip[1] - fc[1]], u = [cx - tip[0], cy - tip[1]];
           const cos = (v[0] * u[0] + v[1] * u[1]) / ((Math.hypot(v[0], v[1]) || 1) * (Math.hypot(u[0], u[1]) || 1));
-          const cost = r * 600 + (on / k) * 4 + L * 0.25 + (1 - cos) * 40 + (inside ? 2500 : 0);
-          out.push({ cost, box, end, tip });
+          const base = (1 - cos) * 40 + (inside ? (snug ? 1000 : 600) : 0);
+          const cost = r * 600 + (on / k) * 4 + lenCost(L) + base;
+          out.push({ cost, box, end, tip, segs: [[tip, end]] });
+          if (r && !straight) {
+            const D = Math.hypot(cx - tip[0], cy - tip[1]), nx = -(cy - tip[1]) / D, ny = (cx - tip[0]) / D;
+            for (const b of BENDS) {
+              const off = Math.sign(b) * Math.min(Math.abs(b) * D, 30 * k * (Math.abs(b) > 0.3 ? 1.6 : 1));
+              const ctrl = [(tip[0] + cx) / 2 + nx * off, (tip[1] + cy) / 2 + ny * off];
+              const e2 = edgePoint(ctrl, box, 5 * k), pts = quad(tip, ctrl, e2, 12);
+              const [r2, on2] = this.crossingsPath(pts);
+              if (r2 >= r) continue;
+              let L2 = 0; for (let i = 1; i < pts.length; i++) L2 += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+              const seg6 = quad(tip, ctrl, e2, 6), segs = [];
+              for (let i = 1; i < seg6.length; i++) segs.push([seg6[i - 1], seg6[i]]);
+              out.push({ cost: r2 * 600 + (on2 / k) * 4 + lenCost(L2 / k) + base + 60 + 80 * Math.abs(b), box, end: e2, tip, ctrl, segs });
+            }
+          }
         }
       }
     }
@@ -184,20 +218,22 @@
     return out.slice(0, 3000);
   };
 
-  // Places every item. Returns {key: {box, tip, end, crossings}} (missing = no room).
-  Sheet.prototype.place = function (items, measure, obstacles) {
+  // Places every item. Returns {key: {box, tip, end, ctrl, crossings}} (missing = no room;
+  // ctrl is set for a curved leader). opts.straight: no curved leaders.
+  Sheet.prototype.place = function (items, measure, obstacles, opts) {
     const k = this.k, self = this;
     obstacles = obstacles || { boxes: [], segs: [] };
     const its = items.filter(it => it.tips && it.tips.length).map(it => Object.assign({}, it));
-    for (const it of its) it.cands = this.candidates(it, measure);
+    for (const it of its) it.cands = this.candidates(it, measure, opts && opts.straight);
 
     function ok(it, c, boxes, segs) {
       if (it.fixed) return true;
       const pad = 16 * k;
       for (const b of boxes) if (boxesTouch(c.box, b, pad)) return false;
-      const seg = [c.tip, c.end];
-      for (const s2 of segs) if (segInter(seg[0], seg[1], s2[0], s2[1]) || segGap(seg, s2) < 20 * k) return false;
-      for (const b of boxes) if (segRect(seg[0], seg[1], [b[0] - 5 * k, b[1] - 5 * k, b[2] + 5 * k, b[3] + 5 * k])) return false;
+      for (const seg of c.segs) {
+        for (const s2 of segs) if (segInter(seg[0], seg[1], s2[0], s2[1]) || segGap(seg, s2) < 20 * k) return false;
+        for (const b of boxes) if (segRect(seg[0], seg[1], [b[0] - 5 * k, b[1] - 5 * k, b[2] + 5 * k, b[3] + 5 * k])) return false;
+      }
       const pb = [c.box[0] - pad, c.box[1] - pad, c.box[2] + pad, c.box[3] + pad];
       for (const s2 of segs) if (segRect(s2[0], s2[1], pb)) return false;
       return true;
@@ -205,7 +241,7 @@
     // Leaders that run close past another part's tip read as pointing at it.
     function dyn(it, c) {
       let near = 0;
-      for (const o of its) if (o !== it && o.tips[0] && ptSeg(o.tips[0], c.tip, c.end) < 20 * k) near++;
+      for (const o of its) if (o !== it && o.tips[0] && c.segs.some(sg => ptSeg(o.tips[0], sg[0], sg[1]) < 20 * k)) near++;
       return c.cost + 300 * near;
     }
     function pick(it, boxes, segs) {
@@ -225,7 +261,7 @@
       const boxes = obstacles.boxes.slice(), segs = obstacles.segs.slice();
       for (const it of order) {
         const c = pick(it, boxes, segs); chosen.set(it, c);
-        if (c) { boxes.push(c.box); segs.push([c.tip, c.end]); }
+        if (c) { boxes.push(c.box); segs.push(...c.segs); }
       }
     }
     // hardest first: the items with the fewest cheap spots
@@ -243,14 +279,45 @@
       for (const it of order) {
         const others = order.filter(o => o !== it && chosen.get(o));
         const c = pick(it, obstacles.boxes.concat(others.map(o => chosen.get(o).box)),
-                      obstacles.segs.concat(others.map(o => [chosen.get(o).tip, chosen.get(o).end])));
+                      obstacles.segs.concat(...others.map(o => chosen.get(o).segs)));
         if (c) chosen.set(it, c);
       }
+    }
+    // Two labels that want the same spot: give one its better spot and send the other
+    // elsewhere, when that lowers the pair's combined cost.
+    const boxOf = o => chosen.get(o).box, segOf = o => chosen.get(o).segs;
+    for (let pass = 0; pass < 3; pass++) {
+      let improved = false;
+      const byCost = order.filter(it => !it.fixed).sort((a, b) =>
+        (chosen.get(b) ? dyn(b, chosen.get(b)) : 1e9) - (chosen.get(a) ? dyn(a, chosen.get(a)) : 1e9));
+      for (const it of byCost) {
+        const cur = chosen.get(it), curD = cur ? dyn(it, cur) : 1e6;
+        if (curD < 60) continue;
+        const others = order.filter(o => o !== it && chosen.get(o));
+        let tried = 0;
+        for (const c of it.cands) {
+          if (c.cost >= curD - 30 || tried > 60) break;
+          if (!ok(it, c, obstacles.boxes, obstacles.segs)) continue;
+          const confl = others.filter(o => !ok(it, c, [boxOf(o)], segOf(o)));
+          if (confl.length !== 1 || confl[0].fixed) continue;
+          tried++;
+          const j = confl[0], jc = chosen.get(j), rest = others.filter(o => o !== j);
+          const nj = pick(j, obstacles.boxes.concat(rest.map(boxOf), [c.box]), obstacles.segs.concat(...rest.map(segOf), c.segs));
+          if (!nj) continue;
+          const before = curD + dyn(j, jc);
+          chosen.set(it, c); chosen.set(j, nj);
+          const after = dyn(it, c) + dyn(j, nj);
+          if (after < before - 20) { improved = true; break; }
+          chosen.set(it, cur); chosen.set(j, jc);
+        }
+      }
+      if (!improved) break;
     }
     const res = {};
     for (const it of its) {
       const c = chosen.get(it);
-      if (c) res[it.key] = { box: c.box, tip: c.tip, end: c.end, crossings: self.crossings(c.tip, c.end)[0] };
+      if (c) res[it.key] = { box: c.box, tip: c.tip, end: c.end, ctrl: c.ctrl || null,
+                             crossings: self.crossingsPath(c.ctrl ? quad(c.tip, c.ctrl, c.end, 20) : [c.tip, c.end])[0] };
     }
     return res;
   };

@@ -189,6 +189,7 @@ kbd{font-family:ui-monospace,monospace;font-size:11.5px;border:1px solid #C9CED8
     <button class="btn" id="placeall">Place all numerals</button>
     <label>Size <input type="number" id="fs" min="10" max="24" step="1" value="14" style="width:58px"> pt</label>
   </div>
+  <div class="row"><label class="ck" title="Let a leader bend round a line it would otherwise cross"><input type="checkbox" id="curves" checked> Curve leaders round lines</label></div>
   <div class="row"><button class="btn alt sm" id="tidy" title="A numeral whose leader crosses two or more lines is left out of a figure when another figure already shows it cleanly">Leave out crowded repeats</button></div>
   <div class="status" id="report"></div>
   <div class="card2 props" id="props"></div>
@@ -304,7 +305,7 @@ kbd{font-family:ui-monospace,monospace;font-size:11.5px;border:1px solid #C9CED8
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@pdf-lib/fontkit@1.1.1/dist/fontkit.umd.min.js"></script>
-<script src="engine.js?v=2"></script>
-<script src="app.js?v=2"></script>
+<script src="engine.js?v=2.1"></script>
+<script src="app.js?v=2.1"></script>
 </body>
 </html>

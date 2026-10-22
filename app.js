@@ -29,7 +29,7 @@
 
   function freshState() {
     return { figures: [], parts: [], labels: [], notes: [], figLabels: {}, nextId: 1,
-             opts: { layout: 'keep', paper: 'letter', sheetnums: false, figlabels: true, fs: 14, figfs: 20 } };
+             opts: { layout: 'keep', paper: 'letter', sheetnums: false, figlabels: true, curves: true, fs: 14, figfs: 20 } };
   }
   // Older project files lack notes and leader styles.
   function upgradeState(s) {
@@ -364,13 +364,14 @@
   }
   function applyResult(l, r) {
     l.pos = r ? { box: pt(r.box), tip: pt(r.tip), end: pt(r.end), cross: r.crossings } : null;
+    if (r && r.ctrl) l.pos.ctrl = pt(r.ctrl);
   }
 
   function placeOne(l) {
     const sh = sheetOfFig(l.fig); if (!sh) return;
     if (l.style === 'none') { l.pos = underlinedPos(l, sh); return; }
     const eng = engineFor(sh);
-    const res = eng.place([itemFor(l, sh)], measurePx, obstaclesFor(sh, o => o === l, true));
+    const res = eng.place([itemFor(l, sh)], measurePx, obstaclesFor(sh, o => o === l, true), { straight: !st.opts.curves });
     applyResult(l, res[l.id]);
   }
 
@@ -390,7 +391,7 @@
       for (const g of pinnedFL) obst.boxes.push(px(st.figLabels[g.fig].box));
       const todo = mine.filter(movable);
       if (only && !todo.length) continue;
-      const res = eng.place(todo.map(l => itemFor(l, sh)), measurePx, obst);
+      const res = eng.place(todo.map(l => itemFor(l, sh)), measurePx, obst, { straight: !st.opts.curves });
       for (const l of todo) applyResult(l, res[l.id]);
       if (st.opts.figlabels && !only) {
         const done = mine.filter(l => l.pos).map(l => ({ box: px(l.pos.box), tip: px(l.pos.tip), end: px(l.pos.end) }));
@@ -1269,7 +1270,7 @@
 
   function syncOptsToUI() {
     $('layout').value = st.opts.layout; $('paper').value = st.opts.paper;
-    $('sheetnums').checked = st.opts.sheetnums; $('figlabels').checked = st.opts.figlabels; $('fs').value = st.opts.fs;
+    $('sheetnums').checked = st.opts.sheetnums; $('figlabels').checked = st.opts.figlabels; $('curves').checked = st.opts.curves; $('fs').value = st.opts.fs;
   }
   const relayout = async () => { await afterFigChange(); fitPage(); await placeAll(); };
   $('layout').onchange = async () => { snapshot(); st.opts.layout = $('layout').value; if (st.opts.layout === 'split' && !st.opts.sheetnums) st.opts.sheetnums = true; syncOptsToUI(); for (const l of st.labels) { l.pos = null; l.pinned = false; } st.figLabels = {}; await relayout(); };
@@ -1277,6 +1278,7 @@
   $('sheetnums').onchange = async () => { snapshot(); st.opts.sheetnums = $('sheetnums').checked; if (st.opts.layout === 'split') await relayout(); else drawAll(); };
   $('figlabels').onchange = () => { snapshot(); st.opts.figlabels = $('figlabels').checked; if (st.opts.figlabels) placeAll(); else drawAll(); };
   $('fs').onchange = () => { snapshot(); st.opts.fs = clamp(+$('fs').value || 14, 10, 24); for (const l of st.labels) { if (l.style !== 'none') l.pinned = false; else resizeLabel(l); } placeAll(); };
+  $('curves').onchange = () => { snapshot(); st.opts.curves = $('curves').checked; placeAll(); };
   $('placeall').onclick = () => placeAll();
   // Each numeral only has to appear once: drop the copies whose leaders cross two or
   // more lines when the same numeral is shown cleanly in another figure, then re-place.
