@@ -130,17 +130,22 @@
 
   // How many separate drawing lines the segment p->q crosses (ignoring the first
   // few px at the tip, which sit on the part itself), and how many px are on ink.
-  Sheet.prototype.crossings = function (p, q) {
+  Sheet.prototype.crossings = function (p, q) { return this.crossingsPath([p, q]); };
+
+  // The same for a leader drawn as a polyline (a curved leader, sampled).
+  Sheet.prototype.crossingsPath = function (pts) {
     const skip = Math.round(10 * this.k);
-    const L = Math.hypot(q[0] - p[0], q[1] - p[1]), n = Math.floor(L);
-    if (n <= skip) return [0, 0];
-    let runs = 0, on = 0, prev = 0;
-    for (let i = skip; i < n; i++) {
-      const t = i / L;
-      const x = Math.round(p[0] + (q[0] - p[0]) * t), y = Math.round(p[1] + (q[1] - p[1]) * t);
-      const v = (x >= 0 && y >= 0 && x < this.W && y < this.H) ? this.inkd[y * this.W + x] : 0;
-      if (v) { on++; if (!prev) runs++; }
-      prev = v;
+    let runs = 0, on = 0, prev = 0, d = 0;
+    for (let s = 1; s < pts.length; s++) {
+      const p = pts[s - 1], q = pts[s], L = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      for (let i = 0; i < Math.floor(L); i++, d++) {
+        if (d < skip) continue;
+        const t = i / L;
+        const x = Math.round(p[0] + (q[0] - p[0]) * t), y = Math.round(p[1] + (q[1] - p[1]) * t);
+        const v = (x >= 0 && y >= 0 && x < this.W && y < this.H) ? this.inkd[y * this.W + x] : 0;
+        if (v) { on++; if (!prev) runs++; }
+        prev = v;
+      }
     }
     return [runs, on];
   };
@@ -324,10 +329,21 @@
     const keep = boxes.filter(isBig);
     // loose bits near a drawing (a detached fastener, a lead line) join the nearest one;
     // everything else (captions, page numbers, specks) is left out
-    for (const b of boxes.filter(b => !isBig(b))) {
-      let best = null, bd = 25 * pt;
-      for (const k of keep) { const d2 = gap(b.box, k.box); if (d2 < bd) { bd = d2; best = k; } }
-      if (best && b.cnt / total > 0.002) Object.assign(best, union(best, b));
+    // A part lined up beside a drawing, further out (an exploded view), joins it too.
+    const along = (a, k) => {
+      const oy = Math.min(a[3], k[3]) - Math.max(a[1], k[1]), ox = Math.min(a[2], k[2]) - Math.max(a[0], k[0]);
+      return oy >= 0.5 * (a[3] - a[1]) || ox >= 0.5 * (a[2] - a[0]);
+    };
+    const near = b => Math.min(Infinity, ...keep.map(k => gap(b.box, k.box)));
+    const small = boxes.filter(b => !isBig(b)).sort((a, b) => near(a) - near(b));     // closest first
+    for (let pass = 0; pass < 3; pass++) for (const b of small) {
+      if (b.used || b.cnt / total <= 0.002) continue;
+      let best = null, bd = Infinity;
+      for (const k of keep) {
+        const d2 = gap(b.box, k.box);
+        if ((d2 < 25 * pt || (d2 < 70 * pt && along(b.box, k.box))) && d2 < bd) { bd = d2; best = k; }
+      }
+      if (best) { Object.assign(best, union(best, b)); b.used = true; }
     }
     keep.sort((a, b) => {
       const ay = (a.box[1] + a.box[3]) / 2, by = (b.box[1] + b.box[3]) / 2;
