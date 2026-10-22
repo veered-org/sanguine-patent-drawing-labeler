@@ -618,7 +618,8 @@
       h = '<div class="ttl">White-out</div><span class="hint" style="margin:0">Hides that part of the drawing in the labeled PDF and PowerPoint (handy for old numerals or stray marks). Drag a corner to resize.</span>';
     } else if (fl != null) {
       const f = figById(fl);
-      h = `<div class="ttl">FIG. label</div><div class="row"><label>FIG. <input type="text" data-p="fnum" value="${esc(f ? f.num : '')}" style="width:60px"></label></div>`;
+      h = `<div class="ttl">FIG. label</div><div class="row"><label>FIG. <input type="text" data-p="fnum" value="${esc(f ? f.num : '')}" style="width:60px"></label></div>
+        <div class="row"><label title="For the Brief Description of the Drawings in the Word parts list">Shows <input type="text" data-p="fview" value="${esc(f && f.view || '')}" placeholder="side view of the walker" style="width:170px"></label></div>`;
     } else {
       removable = false;
       const labels = selection.filter(s => s.kind === 'label').length;
@@ -639,6 +640,7 @@
     else if (note && k === 'nbold') note.bold = e.target.checked;
     else if (note && k === 'narrow') note.kind = e.target.checked ? 'arrow' : 'line';
     else if (k === 'fnum') { const f = figById(only('figlabel')); if (f) f.num = v.trim(); }
+    else if (k === 'fview') { const f = figById(only('figlabel')); if (f) f.view = v.trim().replace(/^an? /i, '').replace(/[.;]+$/, ''); }
     renderLists(); drawAll();
   });
   $('props').addEventListener('click', async e => {
