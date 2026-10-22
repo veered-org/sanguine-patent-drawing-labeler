@@ -811,12 +811,29 @@
     if (n) { $('partsin').value = ''; activePart = st.parts[st.parts.length - n].id; select(null); }
     renderLists(); drawAll();
   };
-  $('renumber').onclick = () => {
+  function renumberParts(order) {
     if (!st.parts.length) return;
     snapshot();
-    st.parts.forEach((p, i) => renameNumeral(p, String(10 + 2 * i)));
+    order.forEach((p, i) => renameNumeral(p, String(10 + 2 * i)));
+    st.parts = order;
     for (const l of st.labels) resizeLabel(l);
     renderLists(); drawAll();
+  }
+  $('renumber').onclick = () => renumberParts(st.parts.slice());
+  // The way draftsmen number: by the figure a part first shows in, then clockwise round
+  // that figure from its left side. Parts not shown yet keep their order at the end.
+  $('renumberfig').onclick = () => {
+    const key = new Map();
+    st.figures.forEach((f, fi) => {
+      const sh = sheetOfFig(f.id), fb = sh && sh.figInk[f.id]; if (!fb) return;
+      const c = [(fb[0] + fb[2]) / 2 / S, (fb[1] + fb[3]) / 2 / S];
+      for (const l of st.labels) if (l.fig === f.id && l.pos && !key.has(l.part)) {
+        const m = [(l.pos.box[0] + l.pos.box[2]) / 2, (l.pos.box[1] + l.pos.box[3]) / 2];
+        const a = (Math.atan2(m[0] - c[0], c[1] - m[1]) + 2 * Math.PI + 1.75) % (2 * Math.PI);   // 0 just below 9 o'clock
+        key.set(l.part, fi * 10 + a);
+      }
+    });
+    renumberParts(st.parts.slice().sort((p, q) => (key.has(p.id) ? key.get(p.id) : 1e9) - (key.has(q.id) ? key.get(q.id) : 1e9)));
   };
 
   // ---------------------------------------------------------------- surfaces & drawing

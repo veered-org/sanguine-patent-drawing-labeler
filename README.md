@@ -69,7 +69,9 @@ The small orange dots mark leaders that had to cross one line of the drawing.*
     a numeral from a figure where its leader would cross two or more lines, when
     another figure already shows it cleanly.
 - **Keeps the numbering straight.** You type the parts with or without numerals.
-  **Renumber** assigns 10, 12, 14… in list order and updates every label.
+  **Renumber** assigns 10, 12, 14… in list order and updates every label;
+  *… around the figures* numbers them the way draftsmen do, by the figure a part
+  first shows in and clockwise round that figure.
   Suffixes like 26a and 26b tell identical parts apart. The **Check** list flags
   numerals with no room, leaders that cross lines, a numeral used for two parts,
   duplicate figure numbers and parts not shown anywhere.
