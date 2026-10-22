@@ -149,7 +149,7 @@ Node) works on the sheet rendered at 144 dpi:
 - summed-area tables, for a constant-time "is this box clear?" test;
 - the figure's filled silhouette, so numerals prefer the outside.
 
-For each tip it scores numeral positions at 10° steps and a range of distances:
+For each tip it scores numeral positions at 5° steps and a range of distances:
 `600 × lines crossed + 4 × ink under the leader + 0.25 × length (steeper past about
 55 pt) + an outward-direction term + 600 inside the outline` (1000 in a snug spot
 inside it). A leader that would cross a line also tries four gentle bends (quadratic

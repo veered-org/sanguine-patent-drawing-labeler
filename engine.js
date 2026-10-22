@@ -177,7 +177,7 @@
     const maxL = Math.ceil(760 * k) + 2, skip = Math.round(10 * k);
     const runsAt = new Int32Array(maxL + 1), onAt = new Int32Array(maxL + 1);
     for (const tip of it.tips) {
-      for (let ang = 0; ang < 360; ang += 10) {
+      for (let ang = 0; ang < 360; ang += 5) {
         const a = ang * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a);
         let runs = 0, on = 0, prev = 0;
         for (let i = 0; i <= maxL; i++) {
