@@ -13,7 +13,7 @@
   const MARGIN = { t: 72, l: 72, r: 45, b: 27 };      // 37 CFR 1.84(g): 2.5, 2.5, 1.5, 1.0 cm
   const PAD = { l: 58, r: 58, t: 34, b: 70 };         // room for numerals around an enlarged figure
   const MAXSC = 1.6;
-  const LINE_W = 0.8, SHEETNUM_FS = 12, NOTE_FS = 14;
+  const LINE_W = 0.8, SHEETNUM_FS = 12, NOTE_FS = 14, HEADER_FS = 11;
   const ARROW_L = 7, ARROW_W = 2.4;                   // arrowhead length and half-width, pt
   const PROJECT_NAME = 'sanguine-project.json';       // the attachment inside an editable PDF
   const $ = id => document.getElementById(id);
@@ -29,7 +29,7 @@
 
   function freshState() {
     return { figures: [], parts: [], labels: [], notes: [], figLabels: {}, nextId: 1,
-             opts: { layout: 'keep', paper: 'letter', sheetnums: false, figlabels: true, curves: true, fs: 14, figfs: 20 } };
+             opts: { layout: 'keep', paper: 'letter', sheetnums: false, figlabels: true, curves: true, header: '', fs: 14, figfs: 20 } };
   }
   // Older project files lack notes and leader styles.
   function upgradeState(s) {
@@ -468,6 +468,13 @@
   }
 
   // ---------------------------------------------------------------- placement
+  // 37 CFR 1.121(d): an amended drawing sheet says "Replacement Sheet" (or "New Sheet")
+  // in its header, centred in the top margin.
+  function headerBox(sh) {
+    if (!st.opts.header) return null;
+    const t = st.opts.header, [w, h] = measure(t, false, HEADER_FS);
+    return { text: t, box: [sh.w / 2 - w / 2, 30, sh.w / 2 + w / 2, 30 + h] };
+  }
   function sheetNumBox(sh) {
     if (!st.opts.sheetnums) return null;
     const t = (sh.idx + 1) + '/' + sheets.length, [w, h] = measure(t, false, SHEETNUM_FS);
@@ -947,6 +954,8 @@
     }
     const sn = sheetNumBox(sh);
     if (sn) { ctx.fillStyle = '#000'; ctx.font = canvasFont(SHEETNUM_FS); ctx.fillText(sn.text, sn.box[0], sn.box[3]); }
+    const hb = headerBox(sh);
+    if (hb) { ctx.fillStyle = '#000'; ctx.font = canvasFont(HEADER_FS); ctx.fillText(hb.text, hb.box[0], hb.box[3]); }
     if (s.marquee) {
       const r = normRect(s.marquee[0], s.marquee[1]);
       ctx.fillStyle = 'rgba(201,162,39,.12)'; ctx.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
@@ -1448,7 +1457,7 @@
 
   function syncOptsToUI() {
     $('layout').value = st.opts.layout; $('paper').value = st.opts.paper;
-    $('sheetnums').checked = st.opts.sheetnums; $('figlabels').checked = st.opts.figlabels; $('curves').checked = st.opts.curves; $('fs').value = st.opts.fs;
+    $('sheetnums').checked = st.opts.sheetnums; $('figlabels').checked = st.opts.figlabels; $('curves').checked = st.opts.curves; $('header').value = st.opts.header || ''; $('fs').value = st.opts.fs;
   }
   const relayout = async () => { await afterFigChange(); fitPage(); await placeAll(); };
   $('layout').onchange = async () => { snapshot(); st.opts.layout = $('layout').value; if (st.opts.layout === 'split' && !st.opts.sheetnums) st.opts.sheetnums = true; syncOptsToUI(); for (const l of st.labels) { l.pos = null; l.pinned = false; } st.figLabels = {}; await relayout(); };
@@ -1456,6 +1465,7 @@
   $('sheetnums').onchange = async () => { snapshot(); st.opts.sheetnums = $('sheetnums').checked; if (st.opts.layout === 'split') await relayout(); else drawAll(); };
   $('figlabels').onchange = () => { snapshot(); st.opts.figlabels = $('figlabels').checked; if (st.opts.figlabels) placeAll(); else drawAll(); };
   $('fs').onchange = () => { snapshot(); st.opts.fs = clamp(+$('fs').value || 14, 10, 24); for (const l of st.labels) { if (l.style !== 'none') l.pinned = false; else resizeLabel(l); } placeAll(); };
+  $('header').onchange = () => { snapshot(); st.opts.header = $('header').value; drawAll(); };
   $('curves').onchange = () => { snapshot(); st.opts.curves = $('curves').checked; placeAll(); };
   $('placeall').onclick = () => placeAll();
   // Each numeral only has to appear once: drop the copies whose leaders cross two or
@@ -1544,6 +1554,8 @@
       }
       const sn = sheetNumBox(sh);
       if (sn) pg.drawText(sn.text, { x: sn.box[0], y: H - sn.box[3], size: SHEETNUM_FS, font: f, color: black });
+      const hb = headerBox(sh);
+      if (hb) pg.drawText(hb.text, { x: hb.box[0], y: H - hb.box[3], size: HEADER_FS, font: f, color: black });
     }
     out.setTitle(baseName() + ' (labeled)'); out.setCreator('Sanguine patent drawing labeler'); out.setProducer('pdf-lib');
     if (editable) await out.attach(new TextEncoder().encode(JSON.stringify(projectData())), PROJECT_NAME,
@@ -1646,6 +1658,7 @@
       }
       if (st.opts.figlabels) for (const g of sh.figs) { const fl = st.figLabels[g.fig]; if (fl && fl.box) text(figLabelText(figById(g.fig)), fl.box, st.opts.figfs, true); }
       const sn = sheetNumBox(sh); if (sn) text(sn.text, sn.box, SHEETNUM_FS);
+      const hb = headerBox(sh); if (hb) text(hb.text, hb.box, HEADER_FS);
     }
     const blob = await pptx.write({ outputType: 'blob' });
     download(blob, baseName() + '-labeled.pptx');
