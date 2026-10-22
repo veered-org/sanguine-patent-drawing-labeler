@@ -323,10 +323,13 @@
   };
 
   // "FIG. n": centred under the figure (figBox = its ink extent), in clear space,
-  // away from the numerals already placed. Falls back to above/inside if needed.
-  Sheet.prototype.placeFigLabel = function (figBox, wh, placed) {
+  // away from the numerals already placed and nearer its own figure than any other
+  // (others = the other figures' boxes on the sheet). Failing that, beside the figure's
+  // lower half, then above it.
+  Sheet.prototype.placeFigLabel = function (figBox, wh, placed, others) {
     const k = this.k, s = this.sight, [w, h] = wh;
     const fcx = (figBox[0] + figBox[2]) / 2, c30 = 30 * k, p24 = 24 * k;
+    const gap = (a, b) => Math.max(a[0] - b[2], b[0] - a[2], a[1] - b[3], b[1] - a[3], 0);
     const free = box => {
       if (box[0] < s[0] || box[2] > s[2] || box[1] < s[1] || box[3] > s[3]) return false;
       if (this.clear.sum(box[0] - c30, box[1] - c30, box[2] + c30, box[3] + c30)) return false;
@@ -335,23 +338,26 @@
         if (boxesTouch(pb, p.box, 0)) return false;
         if (segRect(p.tip, p.end, pb)) return false;
       }
-      return true;
+      const own = gap(box, figBox);
+      return (others || []).every(o => gap(box, o) > 1.5 * own + 20 * k);
     };
+    const at = (cx, cy) => [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
     const dxs = [];
     for (let d = 0; d <= 500 * k; d += 10 * k) { dxs.push(d); if (d) dxs.push(-d); }
     for (let dy = 0; dy < 400 * k; dy += 8 * k)
-      for (const dx of dxs) {
-        const cx = fcx + dx, cy = figBox[3] + 70 * k + dy;
-        const box = [cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2];
-        if (free(box)) return box;
-      }
-    for (let dy = 0; dy < 400 * k; dy += 8 * k) {       // above the figure
-      const cy = figBox[1] - 60 * k - dy;
-      const box = [fcx - w / 2, cy - h / 2, fcx + w / 2, cy + h / 2];
-      if (free(box)) return box;
+      for (const dx of dxs) { const box = at(fcx + dx, figBox[3] + 70 * k + dy); if (free(box)) return box; }
+    const midY = (figBox[1] + figBox[3]) / 2;
+    for (let y = figBox[3] - h; y > midY; y -= 8 * k)             // beside the lower half
+      for (let dx = 0; dx < 300 * k; dx += 10 * k)
+        for (const side of [1, -1]) {
+          const cx = side > 0 ? figBox[2] + 40 * k + w / 2 + dx : figBox[0] - 40 * k - w / 2 - dx;
+          const box = at(cx, y); if (free(box)) return box;
+        }
+    for (let dy = 0; dy < 400 * k; dy += 8 * k) {                 // above the figure
+      const box = at(fcx, figBox[1] - 60 * k - dy); if (free(box)) return box;
     }
     const cy = Math.min(s[3] - h / 2, figBox[3] + 50 * k);
-    return [fcx - w / 2, cy - h / 2, fcx + w / 2, cy + h / 2];
+    return at(fcx, cy);
   };
 
   // Figure finder: groups the ink on a page into separate drawings. Returns boxes in px,

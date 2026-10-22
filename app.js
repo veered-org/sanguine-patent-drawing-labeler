@@ -546,7 +546,7 @@
       if (figCaption(f)) { delete st.figLabels[g.fig]; continue; }
       if (cur && (cur.pinned || missingOnly)) { done.push({ box: px(cur.box), tip: [0, 0], end: [0, 0] }); continue; }
       const wh = measure(figLabelText(f), true, st.opts.figfs).map(v => v * S);
-      const box = eng.placeFigLabel(sh.figInk[g.fig], wh, done);
+      const box = eng.placeFigLabel(sh.figInk[g.fig], wh, done, sh.figs.filter(o => o !== g).map(o => sh.figInk[o.fig]));
       st.figLabels[g.fig] = { box: pt(box), pinned: false };
       done.push({ box, tip: [0, 0], end: [0, 0] });
     }
