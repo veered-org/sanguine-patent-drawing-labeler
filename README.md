@@ -5,7 +5,7 @@
 **Runs on** any web browser: nothing to install, and the drawing never leaves your computer
 (unless you choose *Ask Claude*, which sends the sheet images to Anthropic with your own key).
 
-**Version 2.4.**
+**Version 2.5.**
 
 Part of [Veered](https://veered.org): free tools, shared as-is. Questions: support@veered.org
 
@@ -43,6 +43,10 @@ The small orange dots mark leaders that had to cross one line of the drawing.*
   instead of adding a second one, and numbers the figures the way the captions do
   (FIG. 4a, 4b…) when it can read them. You can keep the sheets as drawn, or put each figure on its own
   Letter or A4 sheet, enlarged to fill it, with sheet numbers ("1/7").
+- **Turns sheets and figures.** The turn buttons above a sheet turn a sideways scan upright. One
+  figure per sheet can go on portrait or landscape sheets, or whichever fits the
+  figure best; a landscape sheet is filed on its side with its top on the right, and
+  its sheet number in that heading space (37 CFR 1.84(i)).
 - **Places the numerals.** For each part you click, it tries hundreds of positions
   and picks the best one. The best spot is clear of the drawing, inside the 37 CFR
   1.84(g) margins, close to the part, and outside the figure's outline, with a

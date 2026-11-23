@@ -11,6 +11,10 @@
   const S = 2;                                        // px per pt for display and placement
   const PAPER = { letter: [612, 792], a4: [595.28, 841.89] };
   const MARGIN = { t: 72, l: 72, r: 45, b: 27 };      // 37 CFR 1.84(g): 2.5, 2.5, 1.5, 1.0 cm
+  // A landscape sheet is a portrait sheet turned on its side, its top on the right (1.84(i)).
+  const MARGIN_L = { t: 72, r: 72, b: 45, l: 27 };
+  const isLand = s => s.w > s.h + 0.5;
+  const marginOf = s => isLand(s) ? MARGIN_L : MARGIN;
   const PAD = { l: 58, r: 58, t: 34, b: 70 };         // room for numerals around an enlarged figure
   const MAXSC = 1.6;
   const LINE_W = 0.8, SHEETNUM_FS = 12, NOTE_FS = 14, HEADER_FS = 11;
@@ -28,14 +32,14 @@
   const undoStack = [], redoStack = [];
 
   function freshState() {
-    return { figures: [], parts: [], labels: [], notes: [], figLabels: {}, nextId: 1,
-             opts: { layout: 'keep', paper: 'letter', sheetnums: false, figlabels: true, curves: true, header: '', fs: 14, figfs: 20 } };
+    return { figures: [], parts: [], labels: [], notes: [], figLabels: {}, nextId: 1, pageRot: {},
+             opts: { layout: 'keep', paper: 'letter', orient: 'portrait', sheetnums: false, figlabels: true, curves: true, header: '', fs: 14, figfs: 20 } };
   }
   // Older project files lack notes and leader styles.
   function upgradeState(s) {
     const f = freshState();
     s.opts = Object.assign(f.opts, s.opts || {});
-    s.notes = s.notes || []; s.figLabels = s.figLabels || {};
+    s.notes = s.notes || []; s.figLabels = s.figLabels || {}; s.pageRot = s.pageRot || {};
     for (const l of s.labels || []) { if (!l.style) l.style = 'line'; if (!l.alts) l.alts = []; }
     return s;
   }
@@ -100,8 +104,9 @@
   }
   async function restoreState(json) {
     const prev = upgradeState(JSON.parse(json));
-    const relayout = JSON.stringify([prev.figures, prev.opts]) !== JSON.stringify([st.figures, st.opts]) || whitesOf(prev) !== whitesOf(st);
+    let relayout = JSON.stringify([prev.figures, prev.opts]) !== JSON.stringify([st.figures, st.opts]) || whitesOf(prev) !== whitesOf(st);
     st = prev; selection = selection.filter(exists); syncOptsToUI();
+    if (await syncRotation()) relayout = true;
     if (relayout) await rebuild(false); else { renderLists(); drawAll(); }
     updateUndoButtons();
   }
@@ -135,13 +140,41 @@
   const labelText = l => l.text != null && l.text !== '' ? l.text : (partById(l.part) || {}).n || '?';
   const figLabelText = f => 'FIG. ' + f.num;
 
+  // A source page as shown: its own /Rotate plus the turn chosen here (p.urot).
+  const pageVp = (p, o) => p.pj.getViewport(Object.assign({ rotation: ((p.pj.rotate || 0) + (p.urot || 0)) % 360 }, o));
+  function imgOf(p) {                      // an image source, turned as chosen
+    if (!p.urot) return p.img;
+    if (p.rimg && p.rimg.rot === p.urot) return p.rimg;
+    const W = p.img.naturalWidth, H = p.img.naturalHeight, q = p.urot % 180 !== 0;
+    const c = document.createElement('canvas'); c.width = q ? H : W; c.height = q ? W : H;
+    const ctx = c.getContext('2d');
+    ctx.translate(c.width / 2, c.height / 2); ctx.rotate(p.urot * Math.PI / 180); ctx.drawImage(p.img, -W / 2, -H / 2);
+    c.rot = p.urot; c.naturalWidth = c.width; c.naturalHeight = c.height;
+    return (p.rimg = c);
+  }
+  function setRot(p, want) {
+    want = ((want % 360) + 360) % 360;
+    if (((want - (p.urot || 0)) % 180 + 180) % 180) { const w = p.w; p.w = p.h; p.h = w; }
+    p.urot = want;
+  }
+  // Brings the pages in line with st.pageRot; true when one turned.
+  async function syncRotation() {
+    if (!doc) return false;
+    let changed = false;
+    for (let i = 0; i < doc.pages.length; i++) {
+      const p = doc.pages[i], want = (st.pageRot || {})[i] || 0;
+      if ((p.urot || 0) === want) continue;
+      setRot(p, want); await renderSource(p); changed = true;
+    }
+    return changed;
+  }
   async function renderSource(p) {
     const c = document.createElement('canvas');
     c.width = Math.round(p.w * S); c.height = Math.round(p.h * S);
     const ctx = c.getContext('2d');
     ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-    if (p.pj) await p.pj.render({ canvasContext: ctx, viewport: p.pj.getViewport({ scale: S }), intent: 'print' }).promise;
-    else ctx.drawImage(p.img, 0, 0, c.width, c.height);
+    if (p.pj) await p.pj.render({ canvasContext: ctx, viewport: pageVp(p, { scale: S }), intent: 'print' }).promise;
+    else ctx.drawImage(imgOf(p), 0, 0, c.width, c.height);
     p.canvas = c;
     p.ink = E.inkFromRGBA(ctx.getImageData(0, 0, c.width, c.height).data, c.width, c.height);
     // "FIG. 3" captions drawn on the sheet: kept out of the figure boxes
@@ -169,7 +202,8 @@
     st.figures = [];
     doc.pages.forEach((p, i) => {
       let boxes = E.findFigures(p.figInk, p.canvas.width, p.canvas.height, S, p.capsPx).map(b => b.map(v => v / S));
-      if (!boxes.length) boxes = [[MARGIN.l, MARGIN.t, p.w - MARGIN.r, p.h - MARGIN.b]];
+      const M = marginOf(p);
+      if (!boxes.length) boxes = [[M.l, M.t, p.w - M.r, p.h - M.b]];
       for (const b of boxes) {
         const pad = 4;
         st.figures.push({ id: nid(), page: i, box: [Math.max(0, b[0] - pad), Math.max(0, b[1] - pad), Math.min(p.w, b[2] + pad), Math.min(p.h, b[3] + pad)], num: '' });
@@ -302,12 +336,17 @@
         sheets.push({ w: p.w, h: p.h, page: i, figs: figs.map(f => ({ fig: f.id, page: i, sc: 1, ox: f.box[0], oy: f.box[1], clip: f.box.slice() })) });
       });
     } else {
-      const [PW, PH] = PAPER[st.opts.paper];
-      const top = st.opts.sheetnums ? PAD.t + 14 : PAD.t;
+      const [A, B] = PAPER[st.opts.paper], num = st.opts.sheetnums ? 14 : 0;
       for (const f of st.figures) {
         const clip = f.box, cw = clip[2] - clip[0], ch = clip[3] - clip[1];
-        const bx = [MARGIN.l + PAD.l, MARGIN.t + top, PW - MARGIN.r - PAD.r, PH - MARGIN.b - PAD.b];
-        const sc = Math.min((bx[2] - bx[0]) / cw, (bx[3] - bx[1]) / ch, MAXSC);
+        // the sheet number sits in the heading space: the top, or the right of a landscape sheet
+        const fit = (PW, PH) => {
+          const M = marginOf({ w: PW, h: PH }), land = PW > PH;
+          const bx = [M.l + PAD.l, M.t + PAD.t + (land ? 0 : num), PW - M.r - PAD.r - (land ? num : 0), PH - M.b - PAD.b];
+          return { PW, PH, bx, sc: Math.min((bx[2] - bx[0]) / cw, (bx[3] - bx[1]) / ch, MAXSC) };
+        };
+        const por = fit(A, B), lan = fit(B, A), o = st.opts.orient;
+        const { PW, PH, bx, sc } = o === 'landscape' || (o === 'auto' && lan.sc > por.sc * 1.15) ? lan : por;
         const ox = bx[0] + ((bx[2] - bx[0]) - cw * sc) / 2, oy = bx[1] + ((bx[3] - bx[1]) - ch * sc) / 2;
         sheets.push({ w: PW, h: PH, page: null, figs: [{ fig: f.id, page: f.page, sc, ox, oy, clip: clip.slice() }] });
       }
@@ -337,20 +376,20 @@
     if (sh.page != null) {
       const p = doc.pages[sh.page];
       if (scale === S) ctx.drawImage(p.canvas, 0, 0);
-      else if (p.pj) await p.pj.render({ canvasContext: ctx, viewport: p.pj.getViewport({ scale }), intent: 'print' }).promise;
-      else ctx.drawImage(p.img, 0, 0, c.width, c.height);
+      else if (p.pj) await p.pj.render({ canvasContext: ctx, viewport: pageVp(p, { scale }), intent: 'print' }).promise;
+      else ctx.drawImage(imgOf(p), 0, 0, c.width, c.height);
     } else for (const g of sh.figs) {
       const p = doc.pages[g.page], cw = g.clip[2] - g.clip[0], ch = g.clip[3] - g.clip[1];
       if (p.pj) {
         // pdf.js ignores a clip on the target canvas, so render the piece on its own canvas
         const t = document.createElement('canvas');
         t.width = Math.max(1, Math.round(cw * g.sc * scale)); t.height = Math.max(1, Math.round(ch * g.sc * scale));
-        const vp = p.pj.getViewport({ scale: scale * g.sc, offsetX: -g.clip[0] * g.sc * scale, offsetY: -g.clip[1] * g.sc * scale });
+        const vp = pageVp(p, { scale: scale * g.sc, offsetX: -g.clip[0] * g.sc * scale, offsetY: -g.clip[1] * g.sc * scale });
         await p.pj.render({ canvasContext: t.getContext('2d'), viewport: vp, intent: 'print' }).promise;
         ctx.drawImage(t, Math.round(g.ox * scale), Math.round(g.oy * scale));
       } else {
-        const k = p.img.naturalWidth / p.w;
-        ctx.drawImage(p.img, g.clip[0] * k, g.clip[1] * k, cw * k, ch * k, g.ox * scale, g.oy * scale, cw * g.sc * scale, ch * g.sc * scale);
+        const im = imgOf(p), k = im.naturalWidth / p.w;
+        ctx.drawImage(im, g.clip[0] * k, g.clip[1] * k, cw * k, ch * k, g.ox * scale, g.oy * scale, cw * g.sc * scale, ch * g.sc * scale);
       }
     }
     ctx.fillStyle = '#fff';
@@ -385,7 +424,7 @@
   const sheetRect = g => [g.ox, g.oy, g.ox + (g.clip[2] - g.clip[0]) * g.sc, g.oy + (g.clip[3] - g.clip[1]) * g.sc];
   function engineFor(sh) {
     if (!sh.eng) {
-      const sight = [MARGIN.l * S, MARGIN.t * S, (sh.w - MARGIN.r) * S, (sh.h - MARGIN.b) * S];
+      const M = marginOf(sh), sight = [M.l * S, M.t * S, (sh.w - M.r) * S, (sh.h - M.b) * S];
       sh.eng = new E.Sheet(sh.ink, sh.canvas.width, sh.canvas.height, S, sight);
     }
     return sh.eng;
@@ -470,16 +509,18 @@
   // ---------------------------------------------------------------- placement
   // 37 CFR 1.121(d): an amended drawing sheet says "Replacement Sheet" (or "New Sheet")
   // in its header, centred in the top margin.
+  // Both sit at the top of the sheet held upright: on a landscape sheet that is its right
+  // side, so `pbox` is in upright-sheet points and `box` is where it shows (turned).
+  function headSpot(sh, text, size, y) {
+    const [w, h] = measure(text, false, size), land = isLand(sh), PW = land ? sh.h : sh.w;
+    const pbox = [PW / 2 - w / 2, y, PW / 2 + w / 2, y + h];
+    return { text, pbox, rot: land, box: land ? [sh.w - pbox[3], pbox[0], sh.w - pbox[1], pbox[2]] : pbox };
+  }
   function headerBox(sh) {
-    if (!st.opts.header) return null;
-    const t = st.opts.header, [w, h] = measure(t, false, HEADER_FS);
-    return { text: t, box: [sh.w / 2 - w / 2, 30, sh.w / 2 + w / 2, 30 + h] };
+    return st.opts.header ? headSpot(sh, st.opts.header, HEADER_FS, 30) : null;
   }
   function sheetNumBox(sh) {
-    if (!st.opts.sheetnums) return null;
-    const t = (sh.idx + 1) + '/' + sheets.length, [w, h] = measure(t, false, SHEETNUM_FS);
-    const y = MARGIN.t + 6;
-    return { text: t, box: [sh.w / 2 - w / 2, y, sh.w / 2 + w / 2, y + h] };
+    return st.opts.sheetnums ? headSpot(sh, (sh.idx + 1) + '/' + sheets.length, SHEETNUM_FS, MARGIN.t + 6) : null;
   }
   function itemFor(l, sh) {
     const g = sh.figs.find(x => x.fig === l.fig), fi = sh.figInk[l.fig];
@@ -683,7 +724,7 @@
     const fnum = id => (figById(id) || {}).num;
     const sortL = st.labels.slice().sort((a, b) => st.figures.indexOf(figById(a.fig)) - st.figures.indexOf(figById(b.fig)) || cmpNum(labelText(a), labelText(b)));
     for (const l of sortL) if (!l.pos) items.push({ cls: 'bad', text: `${labelText(l)} in FIG. ${fnum(l.fig)} found no room: drag it into place`, label: l });
-    const inSight = (sh, b) => sh && b[0] >= MARGIN.l - 0.5 && b[1] >= MARGIN.t - 0.5 && b[2] <= sh.w - MARGIN.r + 0.5 && b[3] <= sh.h - MARGIN.b + 0.5;
+    const inSight = (sh, b) => { if (!sh) return false; const M = marginOf(sh); return b[0] >= M.l - 0.5 && b[1] >= M.t - 0.5 && b[2] <= sh.w - M.r + 0.5 && b[3] <= sh.h - M.b + 0.5; };
     for (const l of sortL) if (l.pos && !inSight(sheetOfFig(l.fig), l.pos.box)) items.push({ cls: 'bad', text: `${labelText(l)} in FIG. ${fnum(l.fig)} is in the margin (37 CFR 1.84(g))`, label: l });
     if (st.opts.figlabels) for (const f of st.figures) { const fl = st.figLabels[f.id]; if (fl && fl.box && !inSight(sheetOfFig(f.id), fl.box)) items.push({ cls: 'bad', text: `The FIG. ${f.num} label is in the margin (37 CFR 1.84(g))` }); }
     const touches = l => {             // the tip sits on a drawn line
@@ -858,7 +899,14 @@
       cap.textContent = s.kind === 'page' ? `Sheet ${s.idx + 1} as drawn` : `Sheet ${s.idx + 1} of ${sheets.length}`;
       const c = document.createElement('canvas');
       c.width = Math.round(s.w * S); c.height = Math.round(s.h * S);
-      box.appendChild(cap); box.appendChild(c); host.appendChild(box);
+      const pi = s.kind === 'page' ? s.idx : s.ref.page != null ? s.ref.page : s.ref.figs[0] && s.ref.figs[0].page;
+      const rot = document.createElement('div'); rot.className = 'rot';
+      if (pi != null) for (const [d, t, k] of [[-90, '<path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 3.5V8h4.5"/>', 'left'], [90, '<path d="M20 12a8 8 0 1 1-2.6-5.9"/><path d="M20 3.5V8h-4.5"/>', 'right']]) {
+        const b = document.createElement('button'); b.innerHTML = '<svg viewBox="0 0 24 24">' + t + '</svg>';
+        b.title = `Turn ${s.kind === 'sheet' && s.ref.page == null ? 'drawing sheet ' + (pi + 1) : 'this sheet'} ${k}`;
+        b.onclick = () => rotatePage(pi, d); rot.appendChild(b);
+      }
+      box.appendChild(cap); box.appendChild(rot); box.appendChild(c); host.appendChild(box);
       s.box = box; s.canvas = c; s.ctx = c.getContext('2d');
       bindPointer(s);
       surfaces.push(s);
@@ -888,7 +936,8 @@
     const tol = 1 / zoomPt, accent = accentColor();
     // the sight area (37 CFR 1.84 margins)
     ctx.strokeStyle = 'rgba(158,27,50,.25)'; ctx.setLineDash([6 * tol, 4 * tol]); ctx.lineWidth = tol;
-    ctx.strokeRect(MARGIN.l, MARGIN.t, s.w - MARGIN.l - MARGIN.r, s.h - MARGIN.t - MARGIN.b);
+    const M = marginOf(s);
+    ctx.strokeRect(M.l, M.t, s.w - M.l - M.r, s.h - M.t - M.b);
     ctx.setLineDash([]);
     if (s.kind === 'page') return drawFigBoxes(s, tol);
     const sh = s.ref, single = selection.length === 1;
@@ -952,10 +1001,13 @@
         if (on && single) { dot(gm.a, true, 3); dot(gm.b, true, 3); }
       }
     }
-    const sn = sheetNumBox(sh);
-    if (sn) { ctx.fillStyle = '#000'; ctx.font = canvasFont(SHEETNUM_FS); ctx.fillText(sn.text, sn.box[0], sn.box[3]); }
-    const hb = headerBox(sh);
-    if (hb) { ctx.fillStyle = '#000'; ctx.font = canvasFont(HEADER_FS); ctx.fillText(hb.text, hb.box[0], hb.box[3]); }
+    const head = (hb, size) => {
+      if (!hb) return;
+      ctx.fillStyle = '#000'; ctx.font = canvasFont(size);
+      if (!hb.rot) return ctx.fillText(hb.text, hb.box[0], hb.box[3]);
+      ctx.save(); ctx.translate(sh.w - hb.pbox[3], hb.pbox[0]); ctx.rotate(Math.PI / 2); ctx.fillText(hb.text, 0, 0); ctx.restore();
+    };
+    head(sheetNumBox(sh), SHEETNUM_FS); head(headerBox(sh), HEADER_FS);
     if (s.marquee) {
       const r = normRect(s.marquee[0], s.marquee[1]);
       ctx.fillStyle = 'rgba(201,162,39,.12)'; ctx.fillRect(r[0], r[1], r[2] - r[0], r[3] - r[1]);
@@ -1069,6 +1121,26 @@
         return afterFigChange();
       },
     };
+  }
+  // Turns a drawing sheet a quarter turn (d = 90 clockwise, -90 back). Figures, tips and
+  // notes on it turn with it; its numerals are placed again.
+  async function rotatePage(i, d) {
+    const p = doc && doc.pages[i]; if (!p) return;
+    snapshot();
+    const W = p.w, H = p.h;
+    const R = d > 0 ? q => [H - q[1], q[0]] : q => [q[1], W - q[0]];
+    const RB = b => normRect(R([b[0], b[1]]), R([b[2], b[3]]));
+    const figs = new Set(st.figures.filter(f => f.page === i).map(f => f.id));
+    for (const f of st.figures) if (figs.has(f.id)) f.box = RB(f.box);
+    for (const l of st.labels) if (figs.has(l.fig)) { l.tip = R(l.tip); l.alts = (l.alts || []).map(R); l.pos = null; l.pinned = false; }
+    for (const n of st.notes) if (n.kind === 'white' ? n.page === i : figs.has(n.fig)) { if (n.a) n.a = R(n.a); if (n.b) n.b = R(n.b); }
+    for (const id of figs) delete st.figLabels[id];
+    st.pageRot[i] = ((((st.pageRot[i] || 0) + d) % 360) + 360) % 360;
+    status('Turning sheet ' + (i + 1) + '…');
+    await syncRotation();
+    await afterFigChange();
+    fitPage();
+    if (st.labels.length || st.opts.figlabels) await placeAll(); else { status(''); drawAll(); }
   }
   async function afterFigChange() {
     // tips stay put on the source page; positions on an enlarged sheet no longer fit
@@ -1429,6 +1501,8 @@
         const k = 72 / 200;                       // scans are usually 200 dpi
         d = { name, kind: 'image', bytes, mime, pages: [{ w: img.naturalWidth * k, h: img.naturalHeight * k, img }] };
       }
+      const rs = restore || (pendingProject && pendingProject.file && pendingProject.file.pages === d.pages.length ? pendingProject.state : null);
+      for (const [i, r] of Object.entries((rs && rs.pageRot) || {})) if (d.pages[+i]) setRot(d.pages[+i], +r || 0);
       for (const p of d.pages) { await renderSource(p); if (seq !== openSeq) return; }
       doc = d;
       $('fname').textContent = `${name} · ${d.pages.length} sheet${d.pages.length > 1 ? 's' : ''}`;
@@ -1456,11 +1530,12 @@
   const isPaper = p => Object.values(PAPER).some(([w, h]) => (Math.abs(p.w - w) < 8 && Math.abs(p.h - h) < 8) || (Math.abs(p.w - h) < 8 && Math.abs(p.h - w) < 8));
 
   function syncOptsToUI() {
-    $('layout').value = st.opts.layout; $('paper').value = st.opts.paper;
+    $('layout').value = st.opts.layout; $('paper').value = st.opts.paper; $('orient').value = st.opts.orient; $('orient').disabled = st.opts.layout !== 'split';
     $('sheetnums').checked = st.opts.sheetnums; $('figlabels').checked = st.opts.figlabels; $('curves').checked = st.opts.curves; $('header').value = st.opts.header || ''; $('fs').value = st.opts.fs;
   }
   const relayout = async () => { await afterFigChange(); fitPage(); await placeAll(); };
   $('layout').onchange = async () => { snapshot(); st.opts.layout = $('layout').value; if (st.opts.layout === 'split' && !st.opts.sheetnums) st.opts.sheetnums = true; syncOptsToUI(); for (const l of st.labels) { l.pos = null; l.pinned = false; } st.figLabels = {}; await relayout(); };
+  $('orient').onchange = async () => { snapshot(); st.opts.orient = $('orient').value; if (st.opts.layout === 'split') { for (const l of st.labels) if (l.style !== 'none') { l.pos = null; l.pinned = false; } st.figLabels = {}; await relayout(); } };
   $('paper').onchange = async () => { snapshot(); st.opts.paper = $('paper').value; if (st.opts.layout === 'split') await relayout(); };
   $('sheetnums').onchange = async () => { snapshot(); st.opts.sheetnums = $('sheetnums').checked; if (st.opts.layout === 'split') await relayout(); else drawAll(); };
   $('figlabels').onchange = () => { snapshot(); st.opts.figlabels = $('figlabels').checked; if (st.opts.figlabels) placeAll(); else drawAll(); };
@@ -1524,7 +1599,9 @@
     const black = rgb(0, 0, 0), white = rgb(1, 1, 1);
     const tri = (pg, H, h) => pg.drawSvgPath(`M ${h[0][0]} ${h[0][1]} L ${h[1][0]} ${h[1][1]} L ${h[2][0]} ${h[2][1]} Z`, { x: 0, y: H, color: black, borderWidth: 0 });
     for (const sh of sheets) {
-      const pg = out.addPage([sh.w, sh.h]), H = sh.h;
+      // a landscape sheet goes on an upright page turned on its side, top on the right
+      const land = isLand(sh), pg = out.addPage(land ? [sh.h, sh.w] : [sh.w, sh.h]), H = sh.h;
+      if (land) pg.pushOperators(PDFLib.pushGraphicsState(), PDFLib.concatTransformationMatrix(0, 1, -1, 0, sh.h, 0));
       const regions = sh.page != null
         ? [{ page: sh.page, clip: [0, 0, doc.pages[sh.page].w, doc.pages[sh.page].h], dest: [0, 0, sh.w, sh.h] }]
         : sh.figs.map(g => ({ page: g.page, clip: g.clip, dest: sheetRect(g) }));
@@ -1552,10 +1629,10 @@
         const fl = st.figLabels[g.fig], fig = figById(g.fig);
         if (fl && fl.box) pg.drawText(figLabelText(fig), { x: fl.box[0], y: H - fl.box[3], size: st.opts.figfs, font: fb, color: black });
       }
-      const sn = sheetNumBox(sh);
-      if (sn) pg.drawText(sn.text, { x: sn.box[0], y: H - sn.box[3], size: SHEETNUM_FS, font: f, color: black });
-      const hb = headerBox(sh);
-      if (hb) pg.drawText(hb.text, { x: hb.box[0], y: H - hb.box[3], size: HEADER_FS, font: f, color: black });
+      if (land) pg.pushOperators(PDFLib.popGraphicsState());
+      const PH = land ? sh.w : sh.h, sn = sheetNumBox(sh), hb = headerBox(sh);
+      if (sn) pg.drawText(sn.text, { x: sn.pbox[0], y: PH - sn.pbox[3], size: SHEETNUM_FS, font: f, color: black });
+      if (hb) pg.drawText(hb.text, { x: hb.pbox[0], y: PH - hb.pbox[3], size: HEADER_FS, font: f, color: black });
     }
     out.setTitle(baseName() + ' (labeled)'); out.setCreator('Sanguine patent drawing labeler'); out.setProducer('pdf-lib');
     if (editable) await out.attach(new TextEncoder().encode(JSON.stringify(projectData())), PROJECT_NAME,
@@ -1580,7 +1657,7 @@
     if (src) {
       let emb = cache.get(r.page);
       if (!emb) { emb = await out.embedPage(src.getPage(r.page)); cache.set(r.page, emb); }
-      const vp = P.pj.getViewport({ scale: 1 });
+      const vp = pageVp(P, { scale: 1 });
       const rot = ((vp.rotation % 360) + 360) % 360;
       // where the whole (as-shown) page lands, then undo the page rotation around it
       const full = [r.dest[0] - r.clip[0] * sc, r.dest[1] - r.clip[1] * sc, r.dest[0] + (P.w - r.clip[0]) * sc, r.dest[1] + (P.h - r.clip[1]) * sc];
@@ -1594,7 +1671,7 @@
     } else {
       let im = cache.get('img');
       if (!im) {
-        im = doc.mime === 'image/jpeg' ? await out.embedJpg(doc.bytes) : await out.embedPng(await pngBytes(P.img));
+        im = doc.mime === 'image/jpeg' && !P.urot ? await out.embedJpg(doc.bytes) : await out.embedPng(await pngBytes(imgOf(P)));
         cache.set('img', im);
       }
       pg.drawImage(im, { x: cx - r.clip[0] * sc, y: cy + chP - P.h * sc + r.clip[1] * sc, width: P.w * sc, height: P.h * sc });
@@ -1602,7 +1679,7 @@
     pg.pushOperators(L.popGraphicsState());
   }
   async function pngBytes(img) {
-    if (doc.mime === 'image/png') return doc.bytes;
+    if (doc.mime === 'image/png' && img === doc.pages[0].img) return doc.bytes;
     const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
     const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(img, 0, 0);
     return new Promise(ok => c.toBlob(b => b.arrayBuffer().then(ok), 'image/png'));
@@ -1657,8 +1734,14 @@
         else line(gm.a, gm.b, n.kind === 'arrow' ? 'b' : null);
       }
       if (st.opts.figlabels) for (const g of sh.figs) { const fl = st.figLabels[g.fig]; if (fl && fl.box) text(figLabelText(figById(g.fig)), fl.box, st.opts.figfs, true); }
-      const sn = sheetNumBox(sh); if (sn) text(sn.text, sn.box, SHEETNUM_FS);
-      const hb = headerBox(sh); if (hb) text(hb.text, hb.box, HEADER_FS);
+      const head = (hb, size) => {
+        if (!hb) return;
+        if (!hb.rot) return text(hb.text, hb.box, size);
+        const w = hb.pbox[2] - hb.pbox[0] + size * 0.4, cx = (hb.box[0] + hb.box[2]) / 2, cy = (hb.box[1] + hb.box[3]) / 2;
+        slide.addText(hb.text, { x: I(cx - w / 2), y: I(cy - size * 0.6), w: I(w), h: I(size * 1.2), rotate: 90,
+          fontFace: 'Arial', fontSize: size, color: BLACK, margin: 0, align: 'center', valign: 'middle', fit: 'none', wrap: false });
+      };
+      head(sheetNumBox(sh), SHEETNUM_FS); head(headerBox(sh), HEADER_FS);
     }
     const blob = await pptx.write({ outputType: 'blob' });
     download(blob, baseName() + '-labeled.pptx');
